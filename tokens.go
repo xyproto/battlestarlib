@@ -57,9 +57,9 @@ type (
 
 	// Token contains everything needed to know about a parsed token
 	Token struct {
-		t     TokenType
-		value string
-		line  uint
+		T     TokenType
+		Value string
+		Line  uint
 		extra string // Used when coverting from register to string
 	}
 
@@ -78,12 +78,12 @@ func haskey(sm map[TokenType]string, key TokenType) bool {
 
 // Represent a Token as a string
 func (tok Token) String() string {
-	if tok.t == SEP {
+	if tok.T == SEP {
 		return ";"
-	} else if haskey(tokenToString, tok.t) {
-		return tokenToString[tok.t] + ":" + tok.value
+	} else if haskey(tokenToString, tok.T) {
+		return tokenToString[tok.T] + ":" + tok.Value
 	}
-	log.Fatalln("Error: Unfamiliar token when representing as string: " + tok.value)
+	log.Fatalln("Error: Unfamiliar token when representing as string: " + tok.Value)
 	return "!?"
 }
 
@@ -106,7 +106,7 @@ func (config *TargetConfig) retokenize(word string, sep string) []Token {
 		tokens := config.Tokenize(s, sep)
 		//log.Println("RETOKEN", tokens)
 		for _, t := range tokens {
-			if t.t != SEP {
+			if t.T != SEP {
 				newtokens = append(newtokens, t)
 			}
 		}
@@ -400,17 +400,17 @@ func (config *TargetConfig) Tokenize(program, sep string) []Token {
 // Note that only replacements that can be done within one statement will work!
 func (config *TargetConfig) reduce(st Statement, debug bool, ps *ProgramState) Statement {
 	for i := 0; i < (len(st) - 1); i++ {
-		if (st[i].t == BUILTIN) && (st[i].value == "len") {
+		if (st[i].T == BUILTIN) && (st[i].Value == "len") {
 			// The built-in len() function
 
 			var name string
 			var tokenType TokenType
 
-			if st[i+1].t == VALIDNAME {
+			if st[i+1].T == VALIDNAME {
 				// len followed by a valid name
 				// replace with the length of the given value
 
-				name = st[i+1].value
+				name = st[i+1].Value
 
 				if !has(ps.definedNames, name) {
 					log.Fatalln("Error:", name, "is unfamiliar. Can not find length.")
@@ -427,18 +427,18 @@ func (config *TargetConfig) reduce(st Statement, debug bool, ps *ProgramState) S
 				//	st[i] = Token{token_type, strconv.Itoa(length), st[0].line, ""}
 				//} else {
 
-				tokenType = st[i+1].t
+				tokenType = st[i+1].T
 
 				// remove the element at i+1
 				st = st[:i+1+copy(st[i+1:], st[i+2:])]
 
 				// replace len(name) with _length_of_name, or [_length_of_name] if it's in .bss
 				if _, ok := ps.variables[name]; ok {
-					st[i] = Token{tokenType, "[_length_of_" + name + "]", st[0].line, ""}
+					st[i] = Token{tokenType, "[_length_of_" + name + "]", st[0].Line, ""}
 				} else {
-					st[i] = Token{tokenType, "_length_of_" + name, st[0].line, ""}
+					st[i] = Token{tokenType, "_length_of_" + name, st[0].Line, ""}
 				}
-			} else if st[i+1].t == REGISTER {
+			} else if st[i+1].T == REGISTER {
 				var length string
 				switch config.platformBits {
 				case 64:
@@ -453,15 +453,15 @@ func (config *TargetConfig) reduce(st Statement, debug bool, ps *ProgramState) S
 				st = st[:i+1+copy(st[i+1:], st[i+2:])]
 
 				// replace len(register) with the appropriate length
-				st[i] = Token{VALUE, length, st[0].line, ""}
+				st[i] = Token{VALUE, length, st[0].Line, ""}
 			}
 
 			if debug {
 				log.Println("SUCCESSFUL REPLACEMENT WITH", st[i])
 			}
-		} else if (st[i].t == BUILTIN) && (st[i].value == "print") && (st[i+1].t == STRING) {
+		} else if (st[i].T == BUILTIN) && (st[i].Value == "print") && (st[i+1].T == STRING) {
 			log.Fatalln("Error: print can only print const strings, not immediate strings")
-		} else if (st[i].t == BUILTIN) && (st[i].value == "print") && ((st[i+1].t == VALIDNAME) || (st[i+1].t == REGISTER)) {
+		} else if (st[i].T == BUILTIN) && (st[i].Value == "print") && ((st[i+1].T == VALIDNAME) || (st[i+1].T == REGISTER)) {
 			// replace print(msg) with
 			// int(0x80, 4, 1, msg, len(msg)) on 32-bit
 			// syscall(1, msg, len(msg)) on 64-bit
@@ -481,20 +481,20 @@ func (config *TargetConfig) reduce(st Statement, debug bool, ps *ProgramState) S
 			switch config.platformBits {
 			case 64:
 				// Special case when printing single bytes, typically from chr(...)
-				if st[i+1].value == "rsp" {
-					cmd = "syscall(1, 1, " + st[i+1].value + ", 1)"
+				if st[i+1].Value == "rsp" {
+					cmd = "syscall(1, 1, " + st[i+1].Value + ", 1)"
 				} else {
-					cmd = "syscall(1, 1, " + st[i+1].value + ", len(" + st[i+1].value + "))"
+					cmd = "syscall(1, 1, " + st[i+1].Value + ", len(" + st[i+1].Value + "))"
 				}
 				tokens = config.Tokenize(cmd, " ")
 				// Position of the token that is to be written
 				tokenpos = 3
 			case 32:
 				// Special case when printing single bytes, typically from chr(...)
-				if st[i+1].value == "esp" {
-					cmd = "int(0x80, 4, 1, " + st[i+1].value + ", 1)"
+				if st[i+1].Value == "esp" {
+					cmd = "int(0x80, 4, 1, " + st[i+1].Value + ", 1)"
 				} else {
-					cmd = "int(0x80, 4, 1, " + st[i+1].value + ", len(" + st[i+1].value + "))"
+					cmd = "int(0x80, 4, 1, " + st[i+1].Value + ", len(" + st[i+1].Value + "))"
 				}
 				tokens = config.Tokenize(cmd, " ")
 				// Position of the token that is to be written
@@ -507,10 +507,10 @@ func (config *TargetConfig) reduce(st Statement, debug bool, ps *ProgramState) S
 			tokens[tokenpos].extra = extra
 			// Replace the current statement with the newly generated tokens
 			st = tokens
-		} else if (st[i].t == BUILTIN) && (st[i].value == "chr") && (st[i+1].t == VALIDNAME) {
+		} else if (st[i].T == BUILTIN) && (st[i].Value == "chr") && (st[i+1].T == VALIDNAME) {
 			log.Fatalln("Error: str of a defined name is to be implemented")
-		} else if (st[i].t == BUILTIN) && (st[i].value == "chr") && (st[i+1].t == REGISTER) {
-			register := st[i+1].value
+		} else if (st[i].T == BUILTIN) && (st[i].Value == "chr") && (st[i+1].T == REGISTER) {
+			register := st[i+1].Value
 
 			// Replace str(register) with a token VALID_NAME with esp/rsp + register name as the value.
 			// This is not perfect, but allows us to output register values with a system call.
@@ -519,12 +519,12 @@ func (config *TargetConfig) reduce(st Statement, debug bool, ps *ProgramState) S
 				// remove the element at i+1
 				st = st[:i+1+copy(st[i+1:], st[i+2:])]
 				// replace with the register that contains the address of the string
-				st[i] = Token{REGISTER, "rsp", st[0].line, register} // only a single byte
+				st[i] = Token{REGISTER, "rsp", st[0].Line, register} // only a single byte
 			case 32:
 				// remove the element at i+1
 				st = st[:i+1+copy(st[i+1:], st[i+2:])]
 				// replace with the register that contains the address of the string
-				st[i] = Token{REGISTER, "esp", st[0].line, register} // only a single byte
+				st[i] = Token{REGISTER, "esp", st[0].Line, register} // only a single byte
 			case 16:
 				log.Fatalln("Error: chr() is not implemented for 16-bit platforms")
 			}
@@ -540,10 +540,10 @@ func (config *TargetConfig) TokensToAssembly(tokens []Token, debug bool, debug2 
 	constants := ""
 	bsscode := ""
 	for _, token := range tokens {
-		if token.t == SEP {
+		if token.T == SEP {
 			if len(statement) > 0 {
 				asmline := Statement(statement).String(ps, config)
-				if (statement[0].t == KEYWORD) && (statement[0].value == "const") {
+				if (statement[0].T == KEYWORD) && (statement[0].Value == "const") {
 					if strings.Contains(asmline, ":") {
 						if debug {
 							log.Printf("CONSTANT: \"%s\"\n", strings.Split(asmline, ":")[0])
@@ -552,7 +552,7 @@ func (config *TargetConfig) TokensToAssembly(tokens []Token, debug bool, debug2 
 						log.Fatalln("Error: Unfamiliar constant:", asmline)
 					}
 					constants += asmline + "\n"
-				} else if (statement[0].t == KEYWORD) && (statement[0].value == "var") {
+				} else if (statement[0].T == KEYWORD) && (statement[0].Value == "var") {
 					// Variables are gathered for the .bss section
 					bsscode += asmline + "\n"
 				} else {
@@ -580,7 +580,7 @@ type TokenFilter (func(Token) bool)
 func only(tokentypes []TokenType) TokenFilter {
 	return func(t Token) bool {
 		for _, tt := range tokentypes {
-			if t.t == tt {
+			if t.T == tt {
 				return true
 			}
 		}

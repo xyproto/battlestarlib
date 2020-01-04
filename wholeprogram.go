@@ -133,7 +133,7 @@ func addExitTokenIfMissing(tokens []Token) []Token {
 	filteredTokens := filtertokens(tokens, only([]TokenType{KEYWORD, BUILTIN, VALUE}))
 	if len(filteredTokens) >= 2 {
 		twolast = filteredTokens[len(filteredTokens)-2:]
-		if twolast[1].t == VALUE {
+		if twolast[1].T == VALUE {
 			lasttoken = twolast[0]
 		} else {
 			lasttoken = twolast[1]
@@ -146,12 +146,12 @@ func addExitTokenIfMissing(tokens []Token) []Token {
 	}
 
 	// If the last keyword token is ret, exit, jmp or end, all is well, return the same tokens
-	if (lasttoken.t == KEYWORD) && ((lasttoken.value == "ret") || (lasttoken.value == "end") || (lasttoken.value == "noret")) {
+	if (lasttoken.T == KEYWORD) && ((lasttoken.Value == "ret") || (lasttoken.Value == "end") || (lasttoken.Value == "noret")) {
 		return tokens
 	}
 
 	// If the last builtin token is exit or halt, all is well, return the same tokens
-	if (lasttoken.t == BUILTIN) && ((lasttoken.value == "exit") || (lasttoken.value == "halt")) {
+	if (lasttoken.T == BUILTIN) && ((lasttoken.Value == "exit") || (lasttoken.Value == "halt")) {
 		return tokens
 	}
 
@@ -160,11 +160,11 @@ func addExitTokenIfMissing(tokens []Token) []Token {
 	copy(newtokens, tokens)
 
 	// TODO: Check that the line nr is correct
-	retToken := Token{BUILTIN, "exit", newtokens[len(newtokens)-1].line, ""}
+	retToken := Token{BUILTIN, "exit", newtokens[len(newtokens)-1].Line, ""}
 	newtokens[len(tokens)] = retToken
 
 	// TODO: Check that the line nr is correct
-	sepToken := Token{SEP, ";", newtokens[len(newtokens)-1].line, ""}
+	sepToken := Token{SEP, ";", newtokens[len(newtokens)-1].Line, ""}
 	newtokens[len(tokens)+1] = sepToken
 
 	return newtokens

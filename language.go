@@ -93,25 +93,25 @@ func isValue(s string) bool {
 }
 
 func (config *TargetConfig) reservedAndValue(st Statement) string {
-	if st[0].value == "funparam" {
-		paramoffset, err := strconv.Atoi(st[1].value)
+	if st[0].Value == "funparam" {
+		paramoffset, err := strconv.Atoi(st[1].Value)
 		if err != nil {
-			log.Fatalln("Error: Invalid offset for", st[0].value+":", st[1].value)
+			log.Fatalln("Error: Invalid offset for", st[0].Value+":", st[1].Value)
 		}
 		return config.paramnum2reg(paramoffset)
-	} else if st[0].value == "sysparam" {
-		paramoffset, err := strconv.Atoi(st[1].value)
+	} else if st[0].Value == "sysparam" {
+		paramoffset, err := strconv.Atoi(st[1].Value)
 		if err != nil {
-			log.Fatalln("Error: Invalid offset for", st[0].value+":", st[1].value)
+			log.Fatalln("Error: Invalid offset for", st[0].Value+":", st[1].Value)
 		}
 		if paramoffset >= len(interruptParameterRegisters) {
-			log.Fatalln("Error: Invalid offset for", st[0].value+":", st[1].value, "(too high)")
+			log.Fatalln("Error: Invalid offset for", st[0].Value+":", st[1].Value, "(too high)")
 		}
 		return interruptParameterRegisters[paramoffset]
 	} else {
 		// TODO: Implement support for other lists
 		log.Fatalln("Error: Can only handle \"funparam\" and \"sysparam\" reserved words.")
 	}
-	log.Fatalln("Error: Unable to handle reserved word and value:", st[0].value, st[1].value)
+	log.Fatalln("Error: Unable to handle reserved word and value:", st[0].Value, st[1].Value)
 	return ""
 }

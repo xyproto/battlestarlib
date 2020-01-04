@@ -227,7 +227,7 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 	if !syscall {
 		// Remove st[1], if it's not a value
 		i = 1
-		if st[i].t != VALUE {
+		if st[i].T != VALUE {
 			//	log.Println("REMOVING ", st[i]);
 			st = st[:i+copy(st[i:], st[i+1:])]
 		}
@@ -235,7 +235,7 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 
 	// Remove st[-1] if it's a SEP
 	i = len(st) - 1
-	if st[i].t == SEP {
+	if st[i].T == SEP {
 		st = st[:i+copy(st[i:], st[i+1:])]
 	}
 
@@ -268,7 +268,7 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 		if (i - preskip) >= len(interruptParameterRegisters) {
 			log.Println("Error: Too many parameters for interrupt call:")
 			for _, t := range st {
-				log.Println(t.value)
+				log.Println(t.Value)
 			}
 			os.Exit(1)
 			break
@@ -276,25 +276,25 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 		reg = interruptParameterRegisters[i-preskip]
 		n = strconv.Itoa(i - preskip)
 		if (config.macOS && (i == lastI)) || (!config.macOS && (i == firstI)) {
-			comment = "function call: " + st[i].value
+			comment = "function call: " + st[i].Value
 		} else {
-			if st[i].t == VALUE {
-				comment = "parameter #" + n + " is " + st[i].value
+			if st[i].T == VALUE {
+				comment = "parameter #" + n + " is " + st[i].Value
 			} else {
-				if strings.HasPrefix(st[i].value, "_length_of_") {
-					comment = "parameter #" + n + " is len(" + st[i].value[11:] + ")"
+				if strings.HasPrefix(st[i].Value, "_length_of_") {
+					comment = "parameter #" + n + " is len(" + st[i].Value[11:] + ")"
 				} else {
-					if st[i].value == "_" {
+					if st[i].Value == "_" {
 						// When _ is given, use the value already in the corresponding register
 						comment = "parameter #" + n + " is supposedly already set"
-					} else if has(dataNotValueTypes, st[i].value) {
-						comment = "parameter #" + n + " is " + "&" + st[i].value
+					} else if has(dataNotValueTypes, st[i].Value) {
+						comment = "parameter #" + n + " is " + "&" + st[i].Value
 					} else {
-						comment = "parameter #" + n + " is " + st[i].value
+						comment = "parameter #" + n + " is " + st[i].Value
 						// Already recognized not to be a register
 						switch config.platformBits {
 						case 64:
-							if st[i].value == "rsp" {
+							if st[i].Value == "rsp" {
 								if is64bit(st[i].extra) {
 									// Put the value of the register associated with this token at rbp
 									precode += "\tsub rsp, 8\t\t\t; make some space for storing " + st[i].extra + " on the stack\n"
@@ -317,7 +317,7 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 								log.Fatalln("Error: Unhandled register:", st[i].extra)
 							}
 						case 32:
-							if st[i].value == "esp" {
+							if st[i].Value == "esp" {
 								if is32bit(st[i].extra) {
 									precode += "\tsub esp, 4\t\t\t; make some space for storing " + st[i].extra + " on the stack\n"
 									precode += "\tmov DWORD [esp], " + st[i].extra + "\t\t; move " + st[i].extra + " to a memory location on the stack\n"
@@ -345,21 +345,21 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 		}
 		codeline := ""
 		// Skip parameters/registers that are already set
-		if st[i].value == "_" {
+		if st[i].Value == "_" {
 			codeline += "\t\t"
 
 		} else {
-			if st[i].value == "0" {
+			if st[i].Value == "0" {
 				codeline += "\txor " + reg + ", " + reg
 			} else {
 				if config.macOS {
 					if i == lastI {
-						codeline += "\tmov " + reg + ", " + st[i].value
+						codeline += "\tmov " + reg + ", " + st[i].Value
 					} else {
-						codeline += "\tpush dword " + st[i].value
+						codeline += "\tpush dword " + st[i].Value
 					}
 				} else {
-					codeline += "\tmov " + reg + ", " + st[i].value
+					codeline += "\tmov " + reg + ", " + st[i].Value
 				}
 			}
 		}
@@ -376,15 +376,15 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 		precode = "\t;--- system call ---\n" + precode
 	} else {
 		comment := "\t;--- call interrupt "
-		if !strings.HasPrefix(st[1].value, "0x") {
+		if !strings.HasPrefix(st[1].Value, "0x") {
 			// add 0x if missing, assume interrupts will always be called by hex
 			comment += "0x"
 		}
-		comment += st[1].value + " ---\n"
+		comment += st[1].Value + " ---\n"
 		precode = comment + precode
 	}
 	// Add the interrupt call
-	if syscall || (st[1].t == VALUE) {
+	if syscall || (st[1].T == VALUE) {
 		if config.macOS {
 			// just the way function calls are made on BSD/OSX
 			asmcode += "\tsub esp, 4\t\t\t; BSD system call preparation\n"
@@ -394,11 +394,11 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 		} else {
 			// Add 0x if missing, assume interrupts will always be called by hex
 			asmcode += "\tint "
-			if !strings.HasPrefix(st[1].value, "0x") {
-				log.Println("Note: Adding 0x in front of interrupt", st[1].value)
+			if !strings.HasPrefix(st[1].Value, "0x") {
+				log.Println("Note: Adding 0x in front of interrupt", st[1].Value)
 				asmcode += "0x"
 			}
-			asmcode += st[1].value + "\t\t\t; perform the call\n"
+			asmcode += st[1].Value + "\t\t\t; perform the call\n"
 		}
 		if config.macOS {
 			pushcount := len(st) - 2
@@ -407,7 +407,7 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 		}
 		return precode + asmcode + postcode
 	}
-	log.Fatalln("Error: Need a (hexadecimal) interrupt number to call:\n", st[1].value)
+	log.Fatalln("Error: Need a (hexadecimal) interrupt number to call:\n", st[1].Value)
 	return ""
 }
 
@@ -423,34 +423,34 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 	if len(st) == 0 {
 		log.Fatalln("Error: Empty statement.")
 		return ""
-	} else if (st[0].t == BUILTIN) && (st[0].value == "int") { // interrrupt call
+	} else if (st[0].T == BUILTIN) && (st[0].Value == "int") { // interrrupt call
 		return config.syscallOrInterrupt(st, false)
-	} else if (st[0].t == BUILTIN) && (st[0].value == "syscall") {
+	} else if (st[0].T == BUILTIN) && (st[0].Value == "syscall") {
 		return config.syscallOrInterrupt(st, true)
-	} else if (st[0].t == KEYWORD) && (st[0].value == "var") && (len(st) >= 3) { // variable / bss declaration
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "var") && (len(st) >= 3) { // variable / bss declaration
 		varname := ""
-		if st[1].t == VALIDNAME {
-			varname = st[1].value
+		if st[1].T == VALIDNAME {
+			varname = st[1].Value
 		} else {
-			log.Fatalln("Error: "+st[1].value, "is not a valid name for a variable")
+			log.Fatalln("Error: "+st[1].Value, "is not a valid name for a variable")
 		}
 		bsscode := ""
-		if (st[1].t == VALIDNAME) && ((st[2].t == VALUE) || (strings.HasPrefix(st[2].value, "_length_of_"))) {
+		if (st[1].T == VALIDNAME) && ((st[2].T == VALUE) || (strings.HasPrefix(st[2].Value, "_length_of_"))) {
 			if has(ps.definedNames, varname) {
 				log.Fatalln("Error: Can not declare variable, name is already defined: " + varname)
 			}
 			ps.definedNames = append(ps.definedNames, varname)
 			// Store the name of the declared variable in variables + the length
-			if !strings.HasPrefix(st[2].value, "_length_of_") {
+			if !strings.HasPrefix(st[2].Value, "_length_of_") {
 				var err error
-				ps.variables[varname], err = strconv.Atoi(st[2].value)
+				ps.variables[varname], err = strconv.Atoi(st[2].Value)
 				if err != nil {
-					log.Fatalln("Error: " + st[2].value + " is not a valid number of bytes to reserve")
+					log.Fatalln("Error: " + st[2].Value + " is not a valid number of bytes to reserve")
 				}
 			}
 			// Will be placed in the .bss section at the end
-			bsscode += varname + ": resb " + st[2].value + "\t\t\t\t; reserve " + st[2].value + " bytes as " + varname + "\n"
-			bsscode += "_capacity_of_" + varname + " equ " + st[2].value + "\t\t; size of reserved memory\n"
+			bsscode += varname + ": resb " + st[2].Value + "\t\t\t\t; reserve " + st[2].Value + " bytes as " + varname + "\n"
+			bsscode += "_capacity_of_" + varname + " equ " + st[2].Value + "\t\t; size of reserved memory\n"
 			bsscode += "_length_of_" + varname + ": "
 			switch config.platformBits {
 			case 64:
@@ -463,31 +463,31 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			bsscode += "\t\t; current length of contents (points to after the data)\n"
 			return bsscode
 		}
-		log.Printf("Error: Variable statements are on the form: \"var x 1024\" for reserving 1024 bytes, not: %s %s %s\n", st[0].value, st[1].value, st[2].value)
+		log.Printf("Error: Variable statements are on the form: \"var x 1024\" for reserving 1024 bytes, not: %s %s %s\n", st[0].Value, st[1].Value, st[2].Value)
 		log.Println("Invalid parameters for variable string statement:")
 		for _, t := range st {
-			log.Println(t.value)
+			log.Println(t.Value)
 		}
 		os.Exit(1)
-	} else if (st[0].t == KEYWORD) && (st[0].value == "const") && (len(st) >= 4) { // constant data
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "const") && (len(st) >= 4) { // constant data
 		constname := ""
-		if st[1].t == VALIDNAME {
-			constname = st[1].value
+		if st[1].T == VALIDNAME {
+			constname = st[1].Value
 		} else {
-			log.Fatalln("Error: "+st[1].value, " (or a,b,c,d) is not a valid name for a constant")
+			log.Fatalln("Error: "+st[1].Value, " (or a,b,c,d) is not a valid name for a constant")
 		}
 		asmcode := ""
-		if (st[1].t == VALIDNAME) && (st[2].t == ASSIGNMENT) && ((st[3].t == STRING) || (st[3].t == VALUE) || (st[3].t == VALIDNAME)) {
+		if (st[1].T == VALIDNAME) && (st[2].T == ASSIGNMENT) && ((st[3].T == STRING) || (st[3].T == VALUE) || (st[3].T == VALIDNAME)) {
 			if has(ps.definedNames, constname) {
 				log.Fatalln("Error: Can not declare constant, name is already defined: " + constname)
 			}
-			if (st[3].t == VALIDNAME) && !has(ps.definedNames, st[3].value) {
-				log.Fatalln("Error: Can't assign", st[3].value, "to", st[1].value, "because", st[3].value, "is undefined.")
+			if (st[3].T == VALIDNAME) && !has(ps.definedNames, st[3].Value) {
+				log.Fatalln("Error: Can't assign", st[3].Value, "to", st[1].Value, "because", st[3].Value, "is undefined.")
 			}
 			// Store the name of the declared constant in defined_names
 			ps.definedNames = append(ps.definedNames, constname)
 			// For the .DATA section (recognized by the keyword)
-			if st[3].t == VALUE {
+			if st[3].T == VALUE {
 				switch config.platformBits {
 				case 64:
 					asmcode += constname + ":\tdq "
@@ -501,13 +501,13 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 				dataNotValueTypes = append(dataNotValueTypes, constname)
 			}
 			for i := 3; i < len(st); i++ {
-				asmcode += st[i].value
+				asmcode += st[i].Value
 				// Add a comma between every element but the last one
 				if (i + 1) != len(st) {
 					asmcode += ", "
 				}
 			}
-			if st[3].t == STRING {
+			if st[3].T == STRING {
 				asmcode += "\t\t; constant string\n"
 				//if config.platformBits == 16 {
 				// Add an extra $, for safety, if on a 16-bit platform. Needed for print().
@@ -523,14 +523,14 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 		}
 		log.Println("Error: Invalid parameters for constant string statement:")
 		for _, t := range st {
-			log.Println(t.value)
+			log.Println(t.Value)
 		}
 		os.Exit(1)
-	} else if (len(st) > 2) && (st[0].t == VALIDNAME) && (st[1].t == ASSIGNMENT) {
+	} else if (len(st) > 2) && (st[0].T == VALIDNAME) && (st[1].T == ASSIGNMENT) {
 		// Copying data from constants to variables (reserved memory in the .bss section)
 		asmcode := ""
-		from := st[2].value
-		to := st[0].value
+		from := st[2].Value
+		to := st[0].Value
 		lengthexpr := "_length_of_" + from
 		toPosition := "[_length_of_" + to + "]"
 		// TODO: Make this a lot smarter and handle copying ranges of data, adr or value
@@ -560,11 +560,11 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			asmcode += "\trep movsb\t\t\t\t; copy bytes\n"
 		}
 		return asmcode
-	} else if (len(st) > 2) && ((st[1].t == ADDITION) && (st[0].t == VALIDNAME) && (st[2].t == VALIDNAME)) {
+	} else if (len(st) > 2) && ((st[1].T == ADDITION) && (st[0].T == VALIDNAME) && (st[2].T == VALIDNAME)) {
 		// Copying data from constants to variables (reserved memory in the .bss section)
 		asmcode := ""
-		from := st[2].value
-		to := st[0].value
+		from := st[2].Value
+		to := st[0].Value
 		lengthAddr := "[_length_of_" + to + "]"
 		// TODO: Make this a lot smarter and handle copying ranges of data, adr or value
 		// TODO: Actually, redesign the whole language
@@ -595,29 +595,29 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			asmcode += "\trep movsb\t\t\t\t; copy bytes\n"
 		}
 		return asmcode
-	} else if (st[0].t == BUILTIN) && (st[0].value == "halt") {
+	} else if (st[0].T == BUILTIN) && (st[0].Value == "halt") {
 		asmcode := "\t; --- full stop ---\n"
 		asmcode += "\tcli\t\t; clear interrupts\n"
 		asmcode += ".hang:\n"
 		asmcode += "\thlt\n"
 		asmcode += "\tjmp .hang\t; loop forever\n\n"
 		return asmcode
-	} else if (config.platformBits == 16) && (st[0].t == BUILTIN) && (st[0].value == "print") && (st[1].t == VALIDNAME) {
+	} else if (config.platformBits == 16) && (st[0].T == BUILTIN) && (st[0].Value == "print") && (st[1].T == VALIDNAME) {
 		asmcode := "\t; --- output string of given length ---\n"
-		asmcode += "\tmov dx, " + st[1].value + "\n"
-		if _, ok := ps.variables[st[1].value]; ok {
+		asmcode += "\tmov dx, " + st[1].Value + "\n"
+		if _, ok := ps.variables[st[1].Value]; ok {
 			// A variable in .bss
-			asmcode += "\tmov cx, [_length_of_" + st[1].value + "]\n"
+			asmcode += "\tmov cx, [_length_of_" + st[1].Value + "]\n"
 		} else {
-			asmcode += "\tmov cx, _length_of_" + st[1].value + "\n"
+			asmcode += "\tmov cx, _length_of_" + st[1].Value + "\n"
 		}
 		asmcode += "\tmov bx, 1\n"
 		asmcode += "\tmov ah, 0x40\t\t; prepare to call \"Write File or Device\"\n"
 		asmcode += "\tint 0x21\n\n"
 		return asmcode
-	} else if ((st[0].t == KEYWORD) && (st[0].value == "ret")) || ((st[0].t == BUILTIN) && (st[0].value == "exit")) {
+	} else if ((st[0].T == KEYWORD) && (st[0].Value == "ret")) || ((st[0].T == BUILTIN) && (st[0].Value == "exit")) {
 		asmcode := ""
-		if st[0].value == "ret" {
+		if st[0].Value == "ret" {
 			if (ps.inFunction == "main") || (ps.inFunction == config.LinkerStartFunction) {
 				//log.Println("Not taking down stack frame in the main/_start/start function.")
 			} else {
@@ -637,16 +637,16 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			if !config.bootableKernel && !ps.endless && (ps.inFunction == "main") {
 				asmcode += "\n\t;--- return from \"" + ps.inFunction + "\" ---\n"
 			}
-		} else if st[0].value == "exit" {
+		} else if st[0].Value == "exit" {
 			asmcode += "\t;--- exit program ---\n"
 		} else {
 			asmcode += "\t;--- return ---\n"
 		}
-		if (st[0].value == "exit") || (ps.inFunction == "main") || (ps.inFunction == config.LinkerStartFunction) {
+		if (st[0].Value == "exit") || (ps.inFunction == "main") || (ps.inFunction == config.LinkerStartFunction) {
 			// Not returning from main/_start/start function, but exiting properly
 			exitCode := "0"
-			if (len(st) == 2) && ((st[1].t == VALUE) || (st[1].t == REGISTER)) {
-				exitCode = st[1].value
+			if (len(st) == 2) && ((st[1].T == VALUE) || (st[1].T == REGISTER)) {
+				exitCode = st[1].Value
 			}
 			if !config.bootableKernel {
 				switch config.platformBits {
@@ -677,7 +677,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 					asmcode += "\tint 0x80\t\t\t; exit program\n"
 				case 16:
 					// Unless "exit" or "noret" is specified explicitly, use "ret"
-					if st[0].value == "exit" {
+					if st[0].Value == "exit" {
 						// Since we are not building a kernel, calling DOS interrupt 21h makes sense
 						asmcode += "\tmov ah, 0x4c\t\t\t; function 4C\n"
 						if exitCode == "0" {
@@ -686,7 +686,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 							asmcode += "\tmov al, " + exitCode + "\t\t\t; exit code " + exitCode + "\n"
 						}
 						asmcode += "\tint 0x21\t\t\t; exit program\n"
-					} else if st[0].value == "noret" {
+					} else if st[0].Value == "noret" {
 						asmcode += "\t; there is no return\n"
 					} else {
 						if !ps.endless {
@@ -711,7 +711,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			// Exiting from the function definition
 			ps.inFunction = ""
 			// If the function was ended with "exit", don't freak out if an "end" is encountered
-			if st[0].value == "exit" {
+			if st[0].Value == "exit" {
 				ps.surpriseEndingWithExit = true
 			}
 		}
@@ -721,58 +721,58 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			return "; End of inline C block"
 		}
 		return asmcode
-	} else if (st[0].t == KEYWORD && st[0].value == "mem") && (st[1].t == VALUE || st[1].t == VALIDNAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
+	} else if (st[0].T == KEYWORD && st[0].Value == "mem") && (st[1].T == VALUE || st[1].T == VALIDNAME || st[1].T == REGISTER) && (st[2].T == ASSIGNMENT) && (st[3].T == VALUE || st[3].T == VALIDNAME || st[3].T == REGISTER) {
 		// memory assignment
-		return "\tmov [" + st[1].value + "], " + st[3].value + "\t\t; " + "memory assignment" + "\n"
-	} else if (st[0].t == KEYWORD && st[0].value == "membyte") && (st[1].t == VALUE || st[1].t == VALIDNAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
+		return "\tmov [" + st[1].Value + "], " + st[3].Value + "\t\t; " + "memory assignment" + "\n"
+	} else if (st[0].T == KEYWORD && st[0].Value == "membyte") && (st[1].T == VALUE || st[1].T == VALIDNAME || st[1].T == REGISTER) && (st[2].T == ASSIGNMENT) && (st[3].T == VALUE || st[3].T == VALIDNAME || st[3].T == REGISTER) {
 		// memory assignment (byte)
-		val := st[3].value
-		if st[3].t == REGISTER {
+		val := st[3].Value
+		if st[3].T == REGISTER {
 			val = downgradeToByte(val)
 		}
-		return "\tmov BYTE [" + st[1].value + "], " + val + "\t\t; " + "memory assignment" + "\n"
-	} else if (st[0].t == KEYWORD && st[0].value == "memword") && (st[1].t == VALUE || st[1].t == VALIDNAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
+		return "\tmov BYTE [" + st[1].Value + "], " + val + "\t\t; " + "memory assignment" + "\n"
+	} else if (st[0].T == KEYWORD && st[0].Value == "memword") && (st[1].T == VALUE || st[1].T == VALIDNAME || st[1].T == REGISTER) && (st[2].T == ASSIGNMENT) && (st[3].T == VALUE || st[3].T == VALIDNAME || st[3].T == REGISTER) {
 		// memory assignment (word)
-		val := st[3].value
-		if st[3].t == REGISTER {
+		val := st[3].Value
+		if st[3].T == REGISTER {
 			val = regToWord(val)
 		}
-		return "\tmov WORD [" + st[1].value + "], " + val + "\t\t; " + "memory assignment" + "\n"
-	} else if (st[0].t == KEYWORD && st[0].value == "memdouble") && (st[1].t == VALUE || st[1].t == VALIDNAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
+		return "\tmov WORD [" + st[1].Value + "], " + val + "\t\t; " + "memory assignment" + "\n"
+	} else if (st[0].T == KEYWORD && st[0].Value == "memdouble") && (st[1].T == VALUE || st[1].T == VALIDNAME || st[1].T == REGISTER) && (st[2].T == ASSIGNMENT) && (st[3].T == VALUE || st[3].T == VALIDNAME || st[3].T == REGISTER) {
 		// memory assignment (double)
-		val := st[3].value
-		if st[3].t == REGISTER {
+		val := st[3].Value
+		if st[3].T == REGISTER {
 			val = regToDouble(val)
 		}
-		return "\tmov DOUBLE [" + st[1].value + "], " + val + "\t\t; " + "memory assignment" + "\n"
-	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "mem") && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
+		return "\tmov DOUBLE [" + st[1].Value + "], " + val + "\t\t; " + "memory assignment" + "\n"
+	} else if (st[0].T == REGISTER) && (st[1].T == ASSIGNMENT) && (st[2].T == KEYWORD && st[2].Value == "mem") && (st[3].T == VALUE || st[3].T == VALIDNAME || st[3].T == REGISTER) {
 		// assignment from memory to register
-		return "\tmov " + st[0].value + ", [" + st[3].value + "]\t\t; memory assignment\n"
-	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "readbyte") && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
+		return "\tmov " + st[0].Value + ", [" + st[3].Value + "]\t\t; memory assignment\n"
+	} else if (st[0].T == REGISTER) && (st[1].T == ASSIGNMENT) && (st[2].T == KEYWORD && st[2].Value == "readbyte") && (st[3].T == VALUE || st[3].T == VALIDNAME || st[3].T == REGISTER) {
 		// assignment from memory to register (byte)
-		val := st[0].value
-		if st[0].t == REGISTER {
+		val := st[0].Value
+		if st[0].T == REGISTER {
 			val = downgradeToByte(val)
 		}
-		return "\tmov BYTE " + val + ", [" + st[3].value + "]\t\t; memory assignment (byte)\n"
-	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "readword") && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
+		return "\tmov BYTE " + val + ", [" + st[3].Value + "]\t\t; memory assignment (byte)\n"
+	} else if (st[0].T == REGISTER) && (st[1].T == ASSIGNMENT) && (st[2].T == KEYWORD && st[2].Value == "readword") && (st[3].T == VALUE || st[3].T == VALIDNAME || st[3].T == REGISTER) {
 		// assignment from memory to register (byte)
-		val := st[0].value
-		if st[0].t == REGISTER {
+		val := st[0].Value
+		if st[0].T == REGISTER {
 			val = regToWord(val)
 		}
-		return "\tmov WORD " + val + ", [" + st[3].value + "]\t\t; memory assignment (word)\n"
-	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "readdouble") && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
+		return "\tmov WORD " + val + ", [" + st[3].Value + "]\t\t; memory assignment (word)\n"
+	} else if (st[0].T == REGISTER) && (st[1].T == ASSIGNMENT) && (st[2].T == KEYWORD && st[2].Value == "readdouble") && (st[3].T == VALUE || st[3].T == VALIDNAME || st[3].T == REGISTER) {
 		// assignment from memory to register (byte)
-		val := st[0].value
-		if st[0].t == REGISTER {
+		val := st[0].Value
+		if st[0].T == REGISTER {
 			val = regToDouble(val)
 		}
-		return "\tmov DOUBLE " + val + ", [" + st[3].value + "]\t\t; memory assignment (double)\n"
-	} else if len(st) == 3 && ((st[0].t == REGISTER) || (st[0].t == DISREGARD) || (st[0].value == "stack") || (st[2].value == "stack")) {
+		return "\tmov DOUBLE " + val + ", [" + st[3].Value + "]\t\t; memory assignment (double)\n"
+	} else if len(st) == 3 && ((st[0].T == REGISTER) || (st[0].T == DISREGARD) || (st[0].Value == "stack") || (st[2].Value == "stack")) {
 		// Statements like "eax = 3" are handled here
 		// TODO: Handle all sorts of equivivalents to assembly statements
-		if st[1].t == COMPARISON {
+		if st[1].T == COMPARISON {
 			if ps.inIfBlock != "" {
 				log.Fatalln("Error: Already in an if-block (nested block are to be implemented)")
 			}
@@ -782,11 +782,11 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 
 			// Start an if block that is run if the comparison is true
 			// Break if something comparison something
-			asmcode += "\tcmp " + st[0].value + ", " + st[2].value + "\t\t\t; compare\n"
+			asmcode += "\tcmp " + st[0].Value + ", " + st[2].Value + "\t\t\t; compare\n"
 
 			// Conditional jump if NOT true
 			asmcode += "\t"
-			switch st[1].value {
+			switch st[1].Value {
 			case "==":
 				asmcode += "jne"
 			case "!=":
@@ -805,49 +805,49 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			// TODO: Nested if blocks
 			asmcode += " " + ps.inIfBlock + "_end\t\t\t; break\n"
 			return asmcode
-		} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == VALUE || st[2].t == VALIDNAME) {
-			if st[2].value == "0" {
-				return "\txor " + st[0].value + ", " + st[0].value + "\t\t; " + st[0].value + " " + st[1].value + " " + st[2].value
+		} else if (st[0].T == REGISTER) && (st[1].T == ASSIGNMENT) && (st[2].T == VALUE || st[2].T == VALIDNAME) {
+			if st[2].Value == "0" {
+				return "\txor " + st[0].Value + ", " + st[0].Value + "\t\t; " + st[0].Value + " " + st[1].Value + " " + st[2].Value
 			}
-			a := st[0].value
-			b := st[2].value
+			a := st[0].Value
+			b := st[2].Value
 			if is32bit(a) && is64bit(b) {
 				log.Println("Warning: Using", b, "as a 32-bit register when assigning.")
-				return "\tmov " + a + ", " + downgrade(b) + "\t\t; " + a + " " + st[1].value + " " + b
+				return "\tmov " + a + ", " + downgrade(b) + "\t\t; " + a + " " + st[1].Value + " " + b
 			} else if is64bit(a) && is32bit(b) {
 				log.Println("Warning: Using", a, "as a 32-bit register when assigning.")
 				asmcode := "\txor rax, rax\t\t; clear rax\n"
-				asmcode += "\tmov " + downgrade(a) + ", " + b + "\t\t; " + a + " " + st[1].value + " " + b
+				asmcode += "\tmov " + downgrade(a) + ", " + b + "\t\t; " + a + " " + st[1].Value + " " + b
 				return asmcode
 			} else {
-				return "\tmov " + st[0].value + ", " + st[2].value + "\t\t; " + st[0].value + " " + st[1].value + " " + st[2].value
+				return "\tmov " + st[0].Value + ", " + st[2].Value + "\t\t; " + st[0].Value + " " + st[1].Value + " " + st[2].Value
 			}
-		} else if (st[0].t == VALIDNAME) && (st[1].t == ASSIGNMENT) {
-			if has(ps.definedNames, st[0].value) {
-				log.Fatalln("Error:", st[0].value, "has already been defined")
+		} else if (st[0].T == VALIDNAME) && (st[1].T == ASSIGNMENT) {
+			if has(ps.definedNames, st[0].Value) {
+				log.Fatalln("Error:", st[0].Value, "has already been defined")
 			} else {
-				log.Fatalln("Error:", st[0].value, "is not recognized as a register (and there is no const qualifier). Can't assign.")
+				log.Fatalln("Error:", st[0].Value, "is not recognized as a register (and there is no const qualifier). Can't assign.")
 			}
-		} else if st[0].t == DISREGARD {
+		} else if st[0].T == DISREGARD {
 			// TODO: If st[2] is a function, one wishes to call it, then disregard afterwards
-			return "\t\t\t\t; Disregarding: " + st[2].value + "\n"
-		} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == REGISTER) {
-			return "\tmov " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " " + st[1].value + " " + st[2].value
-		} else if (st[0].t == RESERVED) && (st[1].t == VALUE) {
+			return "\t\t\t\t; Disregarding: " + st[2].Value + "\n"
+		} else if (st[0].T == REGISTER) && (st[1].T == ASSIGNMENT) && (st[2].T == REGISTER) {
+			return "\tmov " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " " + st[1].Value + " " + st[2].Value
+		} else if (st[0].T == RESERVED) && (st[1].T == VALUE) {
 			return config.reservedAndValue(st[:2])
-		} else if (len(st) == 3) && ((st[0].t == REGISTER) || (st[0].value == "stack") || (st[0].t == VALUE)) && (st[1].t == ARROW) && ((st[2].t == REGISTER) || (st[2].value == "stack")) {
+		} else if (len(st) == 3) && ((st[0].T == REGISTER) || (st[0].Value == "stack") || (st[0].T == VALUE)) && (st[1].T == ARROW) && ((st[2].T == REGISTER) || (st[2].Value == "stack")) {
 			// push and pop
-			if (st[0].value == "stack") && (st[2].value == "stack") {
+			if (st[0].Value == "stack") && (st[2].Value == "stack") {
 				log.Fatalln("Error: can't pop and push to stack at the same time")
-			} else if st[2].value == "stack" {
+			} else if st[2].Value == "stack" {
 				// something -> stack (push)
-				return "\tpush " + st[0].value + "\t\t\t; " + st[0].value + " -> stack\n"
-			} else if st[0].value == "stack" {
+				return "\tpush " + st[0].Value + "\t\t\t; " + st[0].Value + " -> stack\n"
+			} else if st[0].Value == "stack" {
 				// stack -> something (pop)
-				return "\tpop " + st[2].value + "\t\t\t\t; stack -> " + st[2].value + "\n"
-			} else if (st[0].t == REGISTER) && (st[2].t == REGISTER) {
+				return "\tpop " + st[2].Value + "\t\t\t\t; stack -> " + st[2].Value + "\n"
+			} else if (st[0].T == REGISTER) && (st[2].T == REGISTER) {
 				// reg -> reg (push and then pop)
-				return "\tpush " + st[0].value + "\t\t\t; " + st[0].value + " -> " + st[2].value + "\n\tpop " + st[2].value + "\t\t\t\t;\n"
+				return "\tpush " + st[0].Value + "\t\t\t; " + st[0].Value + " -> " + st[2].Value + "\n\tpop " + st[2].Value + "\t\t\t\t;\n"
 			} else {
 				log.Println("Error: Unrecognized stack expression: ")
 				for _, token := range []Token(st) {
@@ -855,113 +855,113 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 				}
 				os.Exit(1)
 			}
-		} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == RESERVED || st[2].t == VALUE) && (st[3].t == VALUE) {
-			if st[2].value == "funparam" {
-				paramoffset, err := strconv.Atoi(st[3].value)
+		} else if (st[0].T == REGISTER) && (st[1].T == ASSIGNMENT) && (st[2].T == RESERVED || st[2].T == VALUE) && (st[3].T == VALUE) {
+			if st[2].Value == "funparam" {
+				paramoffset, err := strconv.Atoi(st[3].Value)
 				if err != nil {
-					log.Fatalln("Error: Invalid list offset for", st[2].value+":", st[3].value)
+					log.Fatalln("Error: Invalid list offset for", st[2].Value+":", st[3].Value)
 				}
 				paramExpression := config.paramnum2reg(paramoffset)
 				if len(paramExpression) == 3 {
 					paramExpression += "\t"
 				}
-				return "\tmov " + st[0].value + ", " + paramExpression + "\t\t; fetch function param #" + st[3].value + "\n"
+				return "\tmov " + st[0].Value + ", " + paramExpression + "\t\t; fetch function param #" + st[3].Value + "\n"
 			}
 			// TODO: Implement support for other lists
 			log.Fatalln("Error: Can only handle \"funparam\" lists when assigning to a register, so far.")
 		}
-		if (st[1].t == ADDITION) && (st[2].t == REGISTER) {
-			return "\tadd " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " += " + st[2].value
-		} else if (st[1].t == SUBTRACTION) && (st[2].t == REGISTER) {
-			return "\tsub " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " -= " + st[2].value
-		} else if (st[1].t == MULTIPLICATION) && (st[2].t == REGISTER) {
-			if registerA(st[0].value) {
-				return "\tmul " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
+		if (st[1].T == ADDITION) && (st[2].T == REGISTER) {
+			return "\tadd " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " += " + st[2].Value
+		} else if (st[1].T == SUBTRACTION) && (st[2].T == REGISTER) {
+			return "\tsub " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " -= " + st[2].Value
+		} else if (st[1].T == MULTIPLICATION) && (st[2].T == REGISTER) {
+			if registerA(st[0].Value) {
+				return "\tmul " + st[2].Value + "\t\t\t; " + st[0].Value + " *= " + st[2].Value
 			}
-			if st[0].value == st[2].value {
-				return "\timul " + st[0].value + "\t\t\t; " + st[0].value + " *= " + st[0].value
+			if st[0].Value == st[2].Value {
+				return "\timul " + st[0].Value + "\t\t\t; " + st[0].Value + " *= " + st[0].Value
 			}
-			return "\timul " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
-		} else if (st[1].t == DIVISION) && (st[2].t == REGISTER) {
-			if registerA(st[0].value) {
-				return "\tdiv " + st[2].value + "\t\t\t; " + st[0].value + " /= " + st[2].value
+			return "\timul " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " *= " + st[2].Value
+		} else if (st[1].T == DIVISION) && (st[2].T == REGISTER) {
+			if registerA(st[0].Value) {
+				return "\tdiv " + st[2].Value + "\t\t\t; " + st[0].Value + " /= " + st[2].Value
 			}
-			return "\tidiv " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " /= " + st[2].value
+			return "\tidiv " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " /= " + st[2].Value
 		}
-		if (st[1].t == ADDITION) && ((st[2].t == VALUE) || (st[2].t == MEMEXP)) {
-			if st[2].value == "1" {
-				return "\tinc " + st[0].value + "\t\t\t; " + st[0].value + "++"
+		if (st[1].T == ADDITION) && ((st[2].T == VALUE) || (st[2].T == MEMEXP)) {
+			if st[2].Value == "1" {
+				return "\tinc " + st[0].Value + "\t\t\t; " + st[0].Value + "++"
 			}
-			return "\tadd " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " += " + st[2].value
-		} else if (st[1].t == SUBTRACTION) && ((st[2].t == VALUE) || (st[2].t == MEMEXP)) {
-			if st[2].value == "1" {
-				return "\tdec " + st[0].value + "\t\t\t; " + st[0].value + "--"
+			return "\tadd " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " += " + st[2].Value
+		} else if (st[1].T == SUBTRACTION) && ((st[2].T == VALUE) || (st[2].T == MEMEXP)) {
+			if st[2].Value == "1" {
+				return "\tdec " + st[0].Value + "\t\t\t; " + st[0].Value + "--"
 			}
-			return "\tsub " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " -= " + st[2].value
-		} else if (st[1].t == AND) && ((st[2].t == VALUE) || (st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\tand " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " &= " + st[2].value
-		} else if (st[1].t == OR) && ((st[2].t == VALUE) || (st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\tor " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " |= " + st[2].value
+			return "\tsub " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " -= " + st[2].Value
+		} else if (st[1].T == AND) && ((st[2].T == VALUE) || (st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\tand " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " &= " + st[2].Value
+		} else if (st[1].T == OR) && ((st[2].T == VALUE) || (st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\tor " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " |= " + st[2].Value
 			// TODO: All == MEMEXP should be followed by || st[2].t == REGEXP. In fact,
 			//       a better system is needed. Some sort of pattern matching.
-		} else if (st[1].t == XOR) && ((st[2].t == VALUE) || (st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\txor " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " ^= " + st[2].value
-		} else if (st[1].t == ROL) && ((st[2].t == VALUE) || (st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\trol " + st[0].value + ", " + st[2].value + "\t\t\t; rotate " + st[0].value + " left" + st[2].value
-		} else if (st[1].t == ROR) && ((st[2].t == VALUE) || (st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\tror " + st[0].value + ", " + st[2].value + "\t\t\t; rotate " + st[0].value + " right " + st[2].value
-		} else if (st[1].t == SHL) && ((st[2].t == VALUE) || (st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\tshl " + st[0].value + ", " + st[2].value + "\t\t\t; shift " + st[0].value + " left" + st[2].value
-		} else if (st[1].t == SHR) && ((st[2].t == VALUE) || (st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\tshr " + st[0].value + ", " + st[2].value + "\t\t\t; shift " + st[0].value + " right " + st[2].value
-		} else if (st[1].t == XCHG) && ((st[2].t == VALUE) || (st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\txchg " + st[0].value + ", " + st[2].value + "\t\t\t; exchange " + st[0].value + " and " + st[2].value
-		} else if (st[1].t == OUT) && ((st[2].t == VALUE) || (st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\tout " + st[0].value + ", " + st[2].value + "\t\t\t; output " + st[0].value + " to IO port " + st[2].value
-		} else if (st[1].t == IN) && ((st[2].t == MEMEXP) || (st[2].t == REGISTER)) {
-			return "\tin " + st[2].value + ", " + st[0].value + "\t\t\t; input " + st[2].value + " from IO port " + st[0].value
-		} else if (st[1].t == MULTIPLICATION) && ((st[2].t == VALUE) || (st[2].t == MEMEXP)) {
+		} else if (st[1].T == XOR) && ((st[2].T == VALUE) || (st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\txor " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " ^= " + st[2].Value
+		} else if (st[1].T == ROL) && ((st[2].T == VALUE) || (st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\trol " + st[0].Value + ", " + st[2].Value + "\t\t\t; rotate " + st[0].Value + " left" + st[2].Value
+		} else if (st[1].T == ROR) && ((st[2].T == VALUE) || (st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\tror " + st[0].Value + ", " + st[2].Value + "\t\t\t; rotate " + st[0].Value + " right " + st[2].Value
+		} else if (st[1].T == SHL) && ((st[2].T == VALUE) || (st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\tshl " + st[0].Value + ", " + st[2].Value + "\t\t\t; shift " + st[0].Value + " left" + st[2].Value
+		} else if (st[1].T == SHR) && ((st[2].T == VALUE) || (st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\tshr " + st[0].Value + ", " + st[2].Value + "\t\t\t; shift " + st[0].Value + " right " + st[2].Value
+		} else if (st[1].T == XCHG) && ((st[2].T == VALUE) || (st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\txchg " + st[0].Value + ", " + st[2].Value + "\t\t\t; exchange " + st[0].Value + " and " + st[2].Value
+		} else if (st[1].T == OUT) && ((st[2].T == VALUE) || (st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\tout " + st[0].Value + ", " + st[2].Value + "\t\t\t; output " + st[0].Value + " to IO port " + st[2].Value
+		} else if (st[1].T == IN) && ((st[2].T == MEMEXP) || (st[2].T == REGISTER)) {
+			return "\tin " + st[2].Value + ", " + st[0].Value + "\t\t\t; input " + st[2].Value + " from IO port " + st[0].Value
+		} else if (st[1].T == MULTIPLICATION) && ((st[2].T == VALUE) || (st[2].T == MEMEXP)) {
 			// TODO: Don't use a list, write a function that covers the lot
 			shifts := []string{"2", "4", "8", "16", "32", "64", "128"}
-			if has(shifts, st[2].value) {
+			if has(shifts, st[2].Value) {
 				pos := 0
 				for i, v := range shifts {
-					if v == st[2].value {
+					if v == st[2].Value {
 						// Found the appropriate shift value
 						pos = i + 1
 						break
 					}
 				}
 				// TODO: Check that it works with signed numbers and/or introduce signed/unsigned operations
-				return "\tshl " + st[0].value + ", " + strconv.Itoa(pos) + "\t\t\t; " + st[0].value + " *= " + st[2].value
+				return "\tshl " + st[0].Value + ", " + strconv.Itoa(pos) + "\t\t\t; " + st[0].Value + " *= " + st[2].Value
 			}
-			if registerA(st[0].value) {
-				return "\tmul " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
+			if registerA(st[0].Value) {
+				return "\tmul " + st[2].Value + "\t\t\t; " + st[0].Value + " *= " + st[2].Value
 			}
-			if st[0].value == st[2].value {
-				return "\timul " + st[0].value + "\t\t\t; " + st[0].value + " *= " + st[0].value
+			if st[0].Value == st[2].Value {
+				return "\timul " + st[0].Value + "\t\t\t; " + st[0].Value + " *= " + st[0].Value
 			}
-			return "\timul " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
-		} else if (st[1].t == DIVISION) && ((st[2].t == VALUE) || (st[2].t == MEMEXP)) {
+			return "\timul " + st[0].Value + ", " + st[2].Value + "\t\t\t; " + st[0].Value + " *= " + st[2].Value
+		} else if (st[1].T == DIVISION) && ((st[2].T == VALUE) || (st[2].T == MEMEXP)) {
 			// TODO: Don't use a list, write a function that covers the lot
 			shifts := []string{"2", "4", "8", "16", "32", "64", "128"}
-			if has(shifts, st[2].value) {
+			if has(shifts, st[2].Value) {
 				pos := 0
 				for i, v := range shifts {
-					if v == st[2].value {
+					if v == st[2].Value {
 						// Found the appropriate shift value
 						pos = i + 1
 						break
 					}
 				}
 				// TODO: Check that it works with signed numbers and/or introduce signed/unsigned operations
-				return "\tshr " + st[0].value + ", " + strconv.Itoa(pos) + "\t\t; " + st[0].value + " /= " + st[2].value
+				return "\tshr " + st[0].Value + ", " + strconv.Itoa(pos) + "\t\t; " + st[0].Value + " /= " + st[2].Value
 			}
-			asmcode := "\n\t;--- signed division: " + st[0].value + " /= " + st[2].value + " ---\n"
+			asmcode := "\n\t;--- signed division: " + st[0].Value + " /= " + st[2].Value + " ---\n"
 			// TODO Add support for division with 16-bit registers as well!
 
 			if config.platformBits == 32 {
-				if st[0].value == "eax" {
+				if st[0].Value == "eax" {
 					// Dividing a 64-bit number in edx:eax by the number in ecx. Clearing out edx and only using 32-bit numbers for now.
 					// If the register to be divided is rax, do a quicker division than if it's another register
 
@@ -972,7 +972,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 					// clear edx
 					asmcode += "\txor edx, edx\t\t; edx = 0 (32-bit 0:eax instead of 64-bit edx:eax)\n"
 					// ecx = st[2].value
-					asmcode += "\tmov ecx, " + st[2].value + "\t\t; divisor, ecx = " + st[2].value + "\n"
+					asmcode += "\tmov ecx, " + st[2].Value + "\t\t; divisor, ecx = " + st[2].Value + "\n"
 					// div ecx
 					asmcode += "\tdiv ecx\t\t\t; eax = edx:eax / ecx\n"
 					asmcode += "\t\t\t; remainder is in edx\n"
@@ -980,7 +980,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 					//asmcode += "\tpop edx\t\t; restore edx\n"
 					// restore ecx
 					asmcode += "\tpop ecx\t\t; restore ecx\n"
-				} else if st[0].value == "ax" {
+				} else if st[0].Value == "ax" {
 					// Dividing a 32-bit number in dx:ax by the number in bx. Clearing out dx and only using 16-bit numbers for now.
 					// If the register to be divided is ax, do a quicker division than if it's another register
 
@@ -991,7 +991,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 					// clear dx
 					asmcode += "\txor dx, dx\t; dx = 0 (16-bit 0:ax instead of 32-bit dx:ax)\n"
 					// bx = st[2].value
-					asmcode += "\tmov cx, " + st[2].value + "\t; divisor, cx = " + st[2].value + "\n"
+					asmcode += "\tmov cx, " + st[2].Value + "\t; divisor, cx = " + st[2].Value + "\n"
 					asmcode += "\t\t\t; remainder is in dx\n"
 					// div bx
 					asmcode += "\tdiv cx\t\t; ax = dx:ax / cx\n"
@@ -1004,44 +1004,44 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 					//       just divide directly with that register, like for eax above
 					// save eax, we know this is not where we assign the result
 					asmcode += "\tpush eax\t\t; save eax\n"
-					if st[0].value != "ecx" {
+					if st[0].Value != "ecx" {
 						// save ecx
 						asmcode += "\tpush ecx\t\t; save ecx\n"
 					}
-					if st[0].value != "edx" {
+					if st[0].Value != "edx" {
 						// save edx
 						asmcode += "\tpush edx\t\t; save edx\n"
 					}
 					// copy number to be divided to eax
-					if is64bit(st[0].value) {
-						if downgrade(st[0].value) != "eax" {
-							asmcode += "\tmov eax, " + downgrade(st[0].value) + "\t\t; dividend, number to be divided\n"
+					if is64bit(st[0].Value) {
+						if downgrade(st[0].Value) != "eax" {
+							asmcode += "\tmov eax, " + downgrade(st[0].Value) + "\t\t; dividend, number to be divided\n"
 						}
-					} else if is16bit(st[0].value) {
-						if upgrade(st[0].value) != "eax" {
-							asmcode += "\tmov eax, " + upgrade(st[0].value) + "\t\t; dividend, number to be divided\n"
+					} else if is16bit(st[0].Value) {
+						if upgrade(st[0].Value) != "eax" {
+							asmcode += "\tmov eax, " + upgrade(st[0].Value) + "\t\t; dividend, number to be divided\n"
 						}
 					} else {
-						if st[0].value != "eax" {
-							asmcode += "\tmov eax, " + st[0].value + "\t\t; dividend, number to be divided\n"
+						if st[0].Value != "eax" {
+							asmcode += "\tmov eax, " + st[0].Value + "\t\t; dividend, number to be divided\n"
 						}
 					}
 					// clear edx
 					asmcode += "\txor edx, edx\t\t; edx = 0 (32-bit 0:eax instead of 64-bit edx:eax)\n"
 					// ecx = st[2].value
-					asmcode += "\tmov ecx, " + st[2].value + "\t\t; divisor, ecx = " + st[2].value + "\n"
+					asmcode += "\tmov ecx, " + st[2].Value + "\t\t; divisor, ecx = " + st[2].Value + "\n"
 					// eax = edx:eax / ecx
 					asmcode += "\tdiv ecx\t\t\t; eax = edx:eax / ecx\n"
-					if st[0].value != "edx" {
+					if st[0].Value != "edx" {
 						// restore edx
 						asmcode += "\tpop edx\t\t; restore edx\n"
 					}
-					if st[0].value != "ecx" {
+					if st[0].Value != "ecx" {
 						// restore ecx
 						asmcode += "\tpop ecx\t\t; restore ecx\n"
 					}
 					// st[0].value = eax
-					asmcode += "\tmov " + st[0].value + ", eax\t\t; " + st[0].value + " = eax\n"
+					asmcode += "\tmov " + st[0].Value + ", eax\t\t; " + st[0].Value + " = eax\n"
 					// restore eax
 					asmcode += "\tpop eax\t\t; restore eax\n"
 				}
@@ -1050,23 +1050,23 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			}
 			// Dividing a 128-bit number in rdx:rax by the number in rcx. Clearing out rdx and only using 64-bit numbers for now.
 			// If the register to be divided is rax, do a quicker division than if it's another register
-			if st[0].value == "rax" {
+			if st[0].Value == "rax" {
 				// save rdx
 				//asmcode += "\tmov r9, rdx\t\t; save rdx\n"
 				// clear rdx
 				asmcode += "\txor rdx, rdx\t\t; rdx = 0 (64-bit 0:rax instead of 128-bit rdx:rax)\n"
 				// mov r8, st[2].value
-				asmcode += "\tmov r8, " + st[2].value + "\t\t; divisor, r8 = " + st[2].value + "\n"
+				asmcode += "\tmov r8, " + st[2].Value + "\t\t; divisor, r8 = " + st[2].Value + "\n"
 				// div rax
 				asmcode += "\tdiv r8\t\t\t; rax = rdx:rax / r8\n"
 				// restore rdx
 				//asmcode += "\tmov rdx, r9\t\t; restore rdx\n"
 			} else {
-				log.Println("Note: r8, r9 and r10 will be changed when dividing: " + st[0].value + " /= " + st[2].value)
+				log.Println("Note: r8, r9 and r10 will be changed when dividing: " + st[0].Value + " /= " + st[2].Value)
 				// TODO: if the given register is a different one than rax, rcx and rdx,
 				//       just divide directly with that register, like for rax above
 				// save rax, we know this is not where we assign the result
-				if !registerA(st[0].value) {
+				if !registerA(st[0].Value) {
 					asmcode += "\tmov r9, rax\t\t; save rax\n"
 				}
 				//if st[0].value != "rdx" {
@@ -1074,25 +1074,25 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 				//	asmcode += "\tmov r10, rdx\t\t; save rdx\n"
 				//}
 				// copy number to be divided to rax
-				if is32bit(st[0].value) {
-					if st[0].value != "eax" {
+				if is32bit(st[0].Value) {
+					if st[0].Value != "eax" {
 						asmcode += "\txor rax, rax\t\t; clear rax\n"
-						asmcode += "\tmov eax, " + st[0].value + "\t\t; dividend, number to be divided\n"
+						asmcode += "\tmov eax, " + st[0].Value + "\t\t; dividend, number to be divided\n"
 					}
-				} else if is16bit(st[0].value) {
-					if st[0].value != "ax" {
+				} else if is16bit(st[0].Value) {
+					if st[0].Value != "ax" {
 						asmcode += "\txor rax, rax\t\t; clear rax\n"
-						asmcode += "\tmov ax, " + st[0].value + "\t\t; dividend, number to be divided\n"
+						asmcode += "\tmov ax, " + st[0].Value + "\t\t; dividend, number to be divided\n"
 					}
 				} else {
-					if st[0].value != "rax" {
-						asmcode += "\tmov rax, " + st[0].value + "\t\t; dividend, number to be divided\n"
+					if st[0].Value != "rax" {
+						asmcode += "\tmov rax, " + st[0].Value + "\t\t; dividend, number to be divided\n"
 					}
 				}
 				// xor rdx, rdx
 				asmcode += "\txor rdx, rdx\t\t; rdx = 0 (64-bit 0:rax instead of 128-bit rdx:rax)\n"
 				// mov rcx, st[2].value
-				asmcode += "\tmov r8, " + st[2].value + "\t\t; divisor, r8 = " + st[2].value + "\n"
+				asmcode += "\tmov r8, " + st[2].Value + "\t\t; divisor, r8 = " + st[2].Value + "\n"
 				// div rax
 				asmcode += "\tdiv r8\t\t\t; rax = rdx:rax / r8\n"
 				//if st[0].value != "rdx" {
@@ -1100,33 +1100,33 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 				//	asmcode += "\tmov rdx, r10\t\t; restore rdx\n"
 				//}
 				// mov st[0].value, rax
-				if !registerA(st[0].value) {
-					asmcode += "\tmov " + st[0].value + ", rax\t\t; " + st[0].value + " = rax\n"
+				if !registerA(st[0].Value) {
+					asmcode += "\tmov " + st[0].Value + ", rax\t\t; " + st[0].Value + " = rax\n"
 				}
 				// restore rax
-				if !registerA(st[0].value) {
+				if !registerA(st[0].Value) {
 					asmcode += "\tmov rax, r9\t\t; restore rax\n"
 				}
 			}
 			return asmcode
 		}
 		log.Println("Unfamiliar 3-token expression!")
-	} else if (len(st) == 4) && (st[0].t == RESERVED) && (st[1].t == VALUE) && (st[2].t == ASSIGNMENT) && ((st[3].t == VALIDNAME) || (st[3].t == VALUE) || (st[3].t == REGISTER)) {
-		retval := "\tmov " + config.reservedAndValue(st[:2]) + ", " + st[3].value + "\t\t\t; "
-		if (config.platformBits == 32) && (st[3].t != REGISTER) {
+	} else if (len(st) == 4) && (st[0].T == RESERVED) && (st[1].T == VALUE) && (st[2].T == ASSIGNMENT) && ((st[3].T == VALIDNAME) || (st[3].T == VALUE) || (st[3].T == REGISTER)) {
+		retval := "\tmov " + config.reservedAndValue(st[:2]) + ", " + st[3].Value + "\t\t\t; "
+		if (config.platformBits == 32) && (st[3].T != REGISTER) {
 			retval = strings.Replace(retval, "mov", "mov DWORD", 1)
 		}
 		pointercomment := ""
-		if st[3].t == VALIDNAME {
+		if st[3].T == VALIDNAME {
 			pointercomment = "&"
 		}
-		retval += fmt.Sprintf("%s[%s] = %s%s\n", st[0].value, st[1].value, pointercomment, st[3].value)
+		retval += fmt.Sprintf("%s[%s] = %s%s\n", st[0].Value, st[1].Value, pointercomment, st[3].Value)
 		return retval
-	} else if (len(st) == 4) && (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == RESERVED) && (st[3].t == VALUE) {
-		retval := "\tmov " + st[0].value + ", " + config.reservedAndValue(st[2:]) + "\t\t\t; "
-		retval += fmt.Sprintf("%s = %s[%s]\n", st[0].value, st[2].value, st[3].value)
+	} else if (len(st) == 4) && (st[0].T == REGISTER) && (st[1].T == ASSIGNMENT) && (st[2].T == RESERVED) && (st[3].T == VALUE) {
+		retval := "\tmov " + st[0].Value + ", " + config.reservedAndValue(st[2:]) + "\t\t\t; "
+		retval += fmt.Sprintf("%s = %s[%s]\n", st[0].Value, st[2].Value, st[3].Value)
 		return retval
-	} else if (len(st) == 5) && (st[0].t == RESERVED) && (st[1].t == VALUE) && (st[2].t == ASSIGNMENT) && (st[3].t == RESERVED) && (st[4].t == VALUE) {
+	} else if (len(st) == 5) && (st[0].T == RESERVED) && (st[1].T == VALUE) && (st[2].T == ASSIGNMENT) && (st[3].T == RESERVED) && (st[4].T == VALUE) {
 		retval := ""
 		if config.platformBits != 32 {
 			retval = "\tmov " + config.reservedAndValue(st[:2]) + ", " + config.reservedAndValue(st[3:]) + "\t\t\t; "
@@ -1134,68 +1134,68 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			retval = "\tmov eax, " + config.reservedAndValue(st[3:]) + "\t\t\t; Uses eax as a temporary variable\n"
 			retval += "\tmov " + config.reservedAndValue(st[:2]) + ", ebx\t\t\t; "
 		}
-		retval += fmt.Sprintf("%s[%s] = %s[%s]\n", st[0].value, st[1].value, st[3].value, st[4].value)
+		retval += fmt.Sprintf("%s[%s] = %s[%s]\n", st[0].Value, st[1].Value, st[3].Value, st[4].Value)
 		return retval
-	} else if (len(st) >= 2) && (st[0].t == KEYWORD) && (st[0].value == "asm") && (st[1].t == VALUE) {
-		targetBits, err := strconv.Atoi(st[1].value)
+	} else if (len(st) >= 2) && (st[0].T == KEYWORD) && (st[0].Value == "asm") && (st[1].T == VALUE) {
+		targetBits, err := strconv.Atoi(st[1].Value)
 		if err != nil {
-			log.Fatalln("Error: " + st[1].value + " is not a valid platform bit size (like 32 or 64)")
+			log.Fatalln("Error: " + st[1].Value + " is not a valid platform bit size (like 32 or 64)")
 		}
 		if config.platformBits == targetBits {
 			// Add the rest of the line as a regular assembly expression
 			if len(st) == 7 {
 				comma1 := " "
 				comma2 := ", "
-				if st[4].t == QUAL {
+				if st[4].T == QUAL {
 					comma1 = ", "
 					comma2 = " "
 				}
 				// with address calculations
-				if strings.Contains(st[5].value, "+") || strings.Contains(st[5].value, "-") {
-					return "\t" + st[2].value + " " + st[3].value + " " + st[4].value + " " + st[5].value + " " + st[6].value + "\t\t\t; asm with address calculation\n"
-				} else if strings.HasPrefix(st[2].value, "i") {
+				if strings.Contains(st[5].Value, "+") || strings.Contains(st[5].Value, "-") {
+					return "\t" + st[2].Value + " " + st[3].Value + " " + st[4].Value + " " + st[5].Value + " " + st[6].Value + "\t\t\t; asm with address calculation\n"
+				} else if strings.HasPrefix(st[2].Value, "i") {
 					comma1 = ", "
-					return "\t" + st[2].value + " " + st[3].value + comma1 + st[4].value + comma2 + st[5].value + " " + st[6].value + "\t\t\t; asm with integer maths\n"
+					return "\t" + st[2].Value + " " + st[3].Value + comma1 + st[4].Value + comma2 + st[5].Value + " " + st[6].Value + "\t\t\t; asm with integer maths\n"
 				} else {
-					return "\t" + st[2].value + " " + st[3].value + comma1 + st[4].value + comma2 + st[5].value + " " + st[6].value + "\t\t\t; asm with floating point instructions\n"
+					return "\t" + st[2].Value + " " + st[3].Value + comma1 + st[4].Value + comma2 + st[5].Value + " " + st[6].Value + "\t\t\t; asm with floating point instructions\n"
 				}
 			} else if len(st) == 6 {
 				comma1 := " "
 				comma2 := ", "
-				if st[4].t == QUAL {
+				if st[4].T == QUAL {
 					comma1 = ", "
 					comma2 = " "
 				}
 				// with address calculations
-				if strings.Contains(st[5].value, "+") || strings.Contains(st[5].value, "-") {
-					return "\t" + st[2].value + " " + st[3].value + comma1 + st[4].value + comma2 + st[5].value + "\t\t\t; asm with address calculation\n"
-				} else if strings.HasPrefix(st[2].value, "i") {
+				if strings.Contains(st[5].Value, "+") || strings.Contains(st[5].Value, "-") {
+					return "\t" + st[2].Value + " " + st[3].Value + comma1 + st[4].Value + comma2 + st[5].Value + "\t\t\t; asm with address calculation\n"
+				} else if strings.HasPrefix(st[2].Value, "i") {
 					comma1 = ", "
-					return "\t" + st[2].value + " " + st[3].value + comma1 + st[4].value + comma2 + st[5].value + "\t\t\t; asm with integer maths\n"
+					return "\t" + st[2].Value + " " + st[3].Value + comma1 + st[4].Value + comma2 + st[5].Value + "\t\t\t; asm with integer maths\n"
 				} else {
-					return "\t" + st[2].value + " " + st[3].value + comma1 + st[4].value + comma2 + st[5].value + "\t\t\t; asm with floating point instructions\n"
+					return "\t" + st[2].Value + " " + st[3].Value + comma1 + st[4].Value + comma2 + st[5].Value + "\t\t\t; asm with floating point instructions\n"
 				}
 			} else if len(st) == 5 {
 				comma2 := ", "
-				if st[3].t == QUAL {
+				if st[3].T == QUAL {
 					comma2 = " "
 				}
 				// with address calculations
-				if strings.Contains(st[4].value, "+") || strings.Contains(st[4].value, "-") {
-					return "\t" + st[2].value + " " + st[3].value + comma2 + st[4].value + "\t\t\t; asm with address calculation\n"
-				} else if st[3].value == "st" {
-					return "\t" + st[2].value + " " + st[3].value + " (" + st[4].value + ")\t\t\t; asm\n"
+				if strings.Contains(st[4].Value, "+") || strings.Contains(st[4].Value, "-") {
+					return "\t" + st[2].Value + " " + st[3].Value + comma2 + st[4].Value + "\t\t\t; asm with address calculation\n"
+				} else if st[3].Value == "st" {
+					return "\t" + st[2].Value + " " + st[3].Value + " (" + st[4].Value + ")\t\t\t; asm\n"
 				} else {
-					return "\t" + st[2].value + " " + st[3].value + comma2 + st[4].value + "\t\t\t; asm\n"
+					return "\t" + st[2].Value + " " + st[3].Value + comma2 + st[4].Value + "\t\t\t; asm\n"
 				}
 			} else if len(st) == 4 {
-				return "\t" + st[2].value + " " + st[3].value + "\t\t\t; asm\n"
+				return "\t" + st[2].Value + " " + st[3].Value + "\t\t\t; asm\n"
 			} else if len(st) == 3 {
 				// a label or keyword like "stosb"
-				if strings.Contains(st[2].value, ":") {
-					return "\t" + st[2].value + "\t\t\t; asm label\n"
+				if strings.Contains(st[2].Value, ":") {
+					return "\t" + st[2].Value + "\t\t\t; asm label\n"
 				}
-				return "\t" + st[2].value + "\t\t\t; asm\n"
+				return "\t" + st[2].Value + "\t\t\t; asm\n"
 			} else {
 				log.Println("Error: Unrecognized length of assembly expression:", len(st)-2)
 				for i, token := range []Token(st) {
@@ -1209,12 +1209,12 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 		}
 		// Not the target bits, skip
 		return ""
-	} else if (len(st) >= 2) && (st[0].t == KEYWORD) && (st[1].t == VALIDNAME) && (st[0].value == "fun") {
+	} else if (len(st) >= 2) && (st[0].T == KEYWORD) && (st[1].T == VALIDNAME) && (st[0].Value == "fun") {
 		if ps.inFunction != "" {
-			log.Fatalf("Error: Missing \"ret\" or \"end\"? Already in a function named %s when declaring function %s.\n", ps.inFunction, st[1].value)
+			log.Fatalf("Error: Missing \"ret\" or \"end\"? Already in a function named %s when declaring function %s.\n", ps.inFunction, st[1].Value)
 		}
-		asmcode := ";--- function " + st[1].value + " ---\n"
-		ps.inFunction = st[1].value
+		asmcode := ";--- function " + st[1].Value + " ---\n"
+		ps.inFunction = st[1].Value
 		// Store the name of the declared function in defined_names
 		if has(ps.definedNames, ps.inFunction) {
 			log.Fatalln("Error: Can not declare function, name is already defined:", ps.inFunction)
@@ -1239,54 +1239,54 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			asmcode += "\tmov ebp, esp\t\t\t; use stack pointer as new base pointer\n"
 		}
 		return asmcode
-	} else if (st[0].t == KEYWORD) && (st[0].value == "call") && (len(st) == 2) {
-		if st[1].t == VALIDNAME {
-			return "\t;--- call the \"" + st[1].value + "\" function ---\n\tcall " + st[1].value + "\n"
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "call") && (len(st) == 2) {
+		if st[1].T == VALIDNAME {
+			return "\t;--- call the \"" + st[1].Value + "\" function ---\n\tcall " + st[1].Value + "\n"
 		}
-		log.Fatalln("Error: Calling an invalid name:", st[1].value)
+		log.Fatalln("Error: Calling an invalid name:", st[1].Value)
 		// TODO: Find a shorter format to describe matching tokens.
 		// Something along the lines of: if match(st, [KEYWORD:"extern"], 2)
-	} else if (st[0].t == KEYWORD) && (st[0].value == "counter") && (len(st) == 2) {
-		return "\tmov " + config.counterRegister() + ", " + st[1].value + "\t\t\t; set (loop) counter\n"
-	} else if (st[0].t == KEYWORD) && (st[0].value == "value") && (len(st) == 2) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "counter") && (len(st) == 2) {
+		return "\tmov " + config.counterRegister() + ", " + st[1].Value + "\t\t\t; set (loop) counter\n"
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "value") && (len(st) == 2) {
 		asmcode := ""
 		switch config.platformBits {
 		case 64:
-			asmcode = "\tmov rax, " + st[1].value + "\t\t\t; set value, in preparation for looping\n"
+			asmcode = "\tmov rax, " + st[1].Value + "\t\t\t; set value, in preparation for looping\n"
 			ps.loopStep = 8
 		case 32:
-			asmcode = "\tmov eax, " + st[1].value + "\t\t\t; set value, in preparation for looping\n"
+			asmcode = "\tmov eax, " + st[1].Value + "\t\t\t; set value, in preparation for looping\n"
 			ps.loopStep = 4
 		case 16:
 			// Find out if the value is a byte or a word, then set a global variable to keep track of if the nest loop should be using stosb or stosw
-			if st[1].t == VALUE {
-				if (strings.HasPrefix(st[1].value, "0x") && (len(st[1].value) == 6)) || (numbits(st[1].value) > 8) {
-					asmcode += "\tmov ax, " + st[1].value + "\t\t\t; set value, in preparation for stosw\n"
+			if st[1].T == VALUE {
+				if (strings.HasPrefix(st[1].Value, "0x") && (len(st[1].Value) == 6)) || (numbits(st[1].Value) > 8) {
+					asmcode += "\tmov ax, " + st[1].Value + "\t\t\t; set value, in preparation for stosw\n"
 					ps.loopStep = 2
-				} else if (strings.HasPrefix(st[1].value, "0x") && (len(st[1].value) == 4)) || (numbits(st[1].value) <= 8) {
-					asmcode += "\tmov al, " + st[1].value + "\t\t\t; set value, in preparation for stosb\n"
+				} else if (strings.HasPrefix(st[1].Value, "0x") && (len(st[1].Value) == 4)) || (numbits(st[1].Value) <= 8) {
+					asmcode += "\tmov al, " + st[1].Value + "\t\t\t; set value, in preparation for stosb\n"
 					ps.loopStep = 1
 				} else {
-					log.Fatalln("Error: Unable to tell if this is a word or a byte:", st[1].value)
+					log.Fatalln("Error: Unable to tell if this is a word or a byte:", st[1].Value)
 				}
-			} else if st[1].t == REGISTER {
-				switch st[1].value {
+			} else if st[1].T == REGISTER {
+				switch st[1].Value {
 				// TODO: Introduce a function for checking if a register is 8-bit, 16-bit, 32-bit or 64-bit
 				case "al", "ah", "bl", "bh", "cl", "ch", "dl", "dh":
-					asmcode += "\tmov al, " + st[1].value + "\t\t\t; set value from register, in preparation for stosb\n"
+					asmcode += "\tmov al, " + st[1].Value + "\t\t\t; set value from register, in preparation for stosb\n"
 					ps.loopStep = 1
 				default:
-					asmcode += "\tmov ax, " + st[1].value + "\t\t\t; Set value from register, in preparation for stosw\n"
+					asmcode += "\tmov ax, " + st[1].Value + "\t\t\t; Set value from register, in preparation for stosw\n"
 					ps.loopStep = 2
 				}
 			} else {
-				log.Fatalln("Error: Unable to tell if this is a word or a byte:", st[1].value)
+				log.Fatalln("Error: Unable to tell if this is a word or a byte:", st[1].Value)
 			}
 		default:
-			log.Fatalln("Error: Unimplemented: the", st[0].value, "keyword for", config.platformBits, "bit platforms")
+			log.Fatalln("Error: Unimplemented: the", st[0].Value, "keyword for", config.platformBits, "bit platforms")
 		}
 		return asmcode
-	} else if (st[0].t == KEYWORD) && (st[0].value == "loopwrite") && (len(st) == 1) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "loopwrite") && (len(st) == 1) {
 		asmcode := ""
 		switch config.platformBits {
 		case 16:
@@ -1299,7 +1299,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			asmcode += "\tcld\n\trep stosb\t\t\t; write the value in eax/rax, ecx/rcx times, starting at edi/rdi\n"
 		}
 		return asmcode
-	} else if (st[0].t == KEYWORD) && (st[0].value == "write") && (len(st) == 1) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "write") && (len(st) == 1) {
 		asmcode := ""
 		switch config.platformBits {
 		case 16:
@@ -1310,14 +1310,14 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			}
 			//else log.Fatalln("Error: Unrecognized step size. Defaulting to 1.")
 		default:
-			log.Fatalln("Error: Unimplemented: the", st[0].value, "keyword for", config.platformBits, "bit platforms")
+			log.Fatalln("Error: Unimplemented: the", st[0].Value, "keyword for", config.platformBits, "bit platforms")
 		}
 		return asmcode
-	} else if (st[0].t == KEYWORD) && ((st[0].value == "rawloop") || (st[0].value == "loop")) && ((len(st) == 1) || (len(st) == 2)) {
+	} else if (st[0].T == KEYWORD) && ((st[0].Value == "rawloop") || (st[0].Value == "loop")) && ((len(st) == 1) || (len(st) == 2)) {
 		// TODO: Make every instruction and call declare which registers they will change. This allows for better use of the registers.
 
 		// The start of a rawloop or loop, that have an optional counter value and ends with "end"
-		rawloop := (st[0].value == "rawloop")
+		rawloop := (st[0].Value == "rawloop")
 		hascounter := (len(st) == 2)
 		endlessloop := !rawloop && !hascounter
 
@@ -1345,8 +1345,8 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			if endlessloop {
 				asmcode += "\t;--- endless loop ---\n"
 			} else {
-				asmcode += "\t;--- loop " + st[1].value + " times ---\n"
-				asmcode += "\tmov " + config.counterRegister() + ", " + st[1].value
+				asmcode += "\t;--- loop " + st[1].Value + " times ---\n"
+				asmcode += "\tmov " + config.counterRegister() + ", " + st[1].Value
 				asmcode += "\t\t\t; initialize loop counter\n"
 			}
 		}
@@ -1357,11 +1357,11 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			asmcode += "\tpush " + config.counterRegister() + "\t\t\t; save the counter\n"
 		}
 		return asmcode
-	} else if (st[0].t == KEYWORD) && (st[0].value == "address") && (len(st) == 2) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "address") && (len(st) == 2) {
 		asmcode := ""
 		switch config.platformBits {
 		case 16:
-			segmentOffset := st[1].value
+			segmentOffset := st[1].Value
 			if !strings.Contains(segmentOffset, ":") {
 				log.Fatalln("Error: address takes a segment:offset value")
 			}
@@ -1381,14 +1381,14 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 				asmcode += "\tmov di, " + offset + "\t\t\t; di = " + offset + "\n"
 			}
 		case 32:
-			asmcode += "\tmov edi, " + st[1].value + "\t\t\t; set address/offset\n"
+			asmcode += "\tmov edi, " + st[1].Value + "\t\t\t; set address/offset\n"
 		case 64:
-			asmcode += "\tmov rdi, " + st[1].value + "\t\t\t; set address/offset\n"
+			asmcode += "\tmov rdi, " + st[1].Value + "\t\t\t; set address/offset\n"
 		default:
-			log.Fatalln("Error: Unimplemented: the", st[0].value, "keyword for", config.platformBits, "bit platforms")
+			log.Fatalln("Error: Unimplemented: the", st[0].Value, "keyword for", config.platformBits, "bit platforms")
 		}
 		return asmcode
-	} else if (st[0].t == KEYWORD) && (st[0].value == "bootable") && (len(st) == 1) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "bootable") && (len(st) == 1) {
 		config.bootableKernel = true
 		// This program is supposed to be bootable
 		return `
@@ -1425,9 +1425,9 @@ stack_top:
 section .text
 `
 		//'
-	} else if (st[0].t == KEYWORD) && (st[0].value == "extern") && (len(st) == 2) {
-		if st[1].t == VALIDNAME {
-			extname := st[1].value
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "extern") && (len(st) == 2) {
+		if st[1].T == VALIDNAME {
+			extname := st[1].Value
 			// Declare the external name
 			if has(ps.definedNames, extname) {
 				log.Fatalln("Error: Can not declare external symbol, name is already defined: " + extname)
@@ -1437,8 +1437,8 @@ section .text
 			// Return a comment
 			return "extern " + extname + "\t\t\t; external symbol\n"
 		}
-		log.Fatalln("Error: extern with invalid name:", st[1].value)
-	} else if (st[0].t == KEYWORD) && (st[0].value == "break") && (len(st) == 4) && (st[2].t == COMPARISON) {
+		log.Fatalln("Error: extern with invalid name:", st[1].Value)
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "break") && (len(st) == 4) && (st[2].T == COMPARISON) {
 		// breakif
 		if ps.inLoop != "" {
 			asmcode := ""
@@ -1449,11 +1449,11 @@ section .text
 			}
 
 			// Break if something comparison something
-			asmcode += "\tcmp " + st[1].value + ", " + st[3].value + "\t\t\t; compare\n"
+			asmcode += "\tcmp " + st[1].Value + ", " + st[3].Value + "\t\t\t; compare\n"
 
 			// Conditional jump
 			asmcode += "\t"
-			switch st[2].value {
+			switch st[2].Value {
 			case "==":
 				asmcode += "je"
 			case "!=":
@@ -1473,7 +1473,7 @@ section .text
 			return asmcode
 		}
 		log.Fatalln("Error: Unclear which loop one should break out of.")
-	} else if (st[0].t == KEYWORD) && (st[0].value == "break") && (len(st) == 1) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "break") && (len(st) == 1) {
 		if ps.inLoop != "" {
 			asmcode := ""
 			rawloop := strings.HasPrefix(ps.inLoop, rawloopPrefix)     // Is it a rawloop?
@@ -1485,7 +1485,7 @@ section .text
 			return asmcode
 		}
 		log.Fatalln("Error: Unclear which loop one should break out of.")
-	} else if (st[0].t == KEYWORD) && (st[0].value == "continue") && (len(st) == 4) && (st[2].t == COMPARISON) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "continue") && (len(st) == 4) && (st[2].T == COMPARISON) {
 		// continueif
 		if ps.inLoop != "" {
 			asmcode := ""
@@ -1504,11 +1504,11 @@ section .text
 			}
 
 			// Continue if something comparison something
-			asmcode += "\tcmp " + st[1].value + ", " + st[3].value + "\t\t\t; compare\n"
+			asmcode += "\tcmp " + st[1].Value + ", " + st[3].Value + "\t\t\t; compare\n"
 
 			// Conditional jump
 			asmcode += "\t"
-			switch st[2].value {
+			switch st[2].Value {
 			case "==":
 				asmcode += "je"
 			case "!=":
@@ -1529,7 +1529,7 @@ section .text
 			return asmcode
 		}
 		log.Fatalln("Error: Unclear which loop one should continue to the top of.")
-	} else if (st[0].t == KEYWORD) && (st[0].value == "continue") && (len(st) == 1) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "continue") && (len(st) == 1) {
 		if ps.inLoop != "" {
 			asmcode := ""
 			rawloop := strings.HasPrefix(ps.inLoop, rawloopPrefix)     // Is it a rawloop?
@@ -1551,12 +1551,12 @@ section .text
 			return asmcode
 		}
 		log.Fatalln("Error: Unclear which loop one should continue to the top of.")
-	} else if (st[0].t == KEYWORD) && (st[0].value == "endless") && (len(st) == 1) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "endless") && (len(st) == 1) {
 		//ps.in_loop = ""
 		//ps.in_function = ""
 		ps.endless = true
 		return "; there is no return\n"
-	} else if (st[0].t == KEYWORD) && (st[0].value == "end") && (len(st) == 1) {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "end") && (len(st) == 1) {
 		if parseState.inlineC {
 			parseState.inlineC = false
 			return "; end of inline C block\n"
@@ -1587,13 +1587,13 @@ section .text
 			return asmcode
 		} else if ps.inFunction != "" {
 			// Return from the function if "end" is encountered
-			ret := Token{KEYWORD, "ret", st[0].line, ""}
+			ret := Token{KEYWORD, "ret", st[0].Line, ""}
 			newstatement := Statement{ret}
 			return newstatement.String(ps, config)
 		} else {
 			// If the function was already ended with "exit", don't freak out when encountering an "end"
 			if !ps.surpriseEndingWithExit && !ps.endless {
-				log.Fatalln("Error: Not in a function or block of inline C, hard to tell what should be ended with \"end\". Statement nr:", st[0].line)
+				log.Fatalln("Error: Not in a function or block of inline C, hard to tell what should be ended with \"end\". Statement nr:", st[0].Line)
 			} else {
 				// Prepare for more surprises
 				ps.surpriseEndingWithExit = false
@@ -1601,25 +1601,25 @@ section .text
 				return ""
 			}
 		}
-	} else if (st[0].t == VALIDNAME) && (len(st) == 1) {
+	} else if (st[0].T == VALIDNAME) && (len(st) == 1) {
 		// Just a name, assume it's a function call
-		if has(ps.definedNames, st[0].value) {
-			call := Token{KEYWORD, "call", st[0].line, ""}
+		if has(ps.definedNames, st[0].Value) {
+			call := Token{KEYWORD, "call", st[0].Line, ""}
 			newstatement := Statement{call, st[0]}
 			return newstatement.String(ps, config)
 		}
-		log.Fatalln("Error: No function named:", st[0].value)
-	} else if (st[0].t == KEYWORD) && (st[0].value == "noret") {
+		log.Fatalln("Error: No function named:", st[0].Value)
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "noret") {
 		return "; end without a return\n"
-	} else if (st[0].t == KEYWORD) && (st[0].value == "inline_c") {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "inline_c") {
 		parseState.inlineC = true
 		return "; start of inline C block\n"
-	} else if (st[0].t == KEYWORD) && (st[0].value == "const") {
+	} else if (st[0].T == KEYWORD) && (st[0].Value == "const") {
 		log.Fatalln("Error: Incomprehensible constant:", st.String(ps, config))
-	} else if st[0].t == BUILTIN {
-		log.Fatalln("Error: Unhandled builtin:", st[0].value)
-	} else if st[0].t == KEYWORD {
-		log.Fatalln("Error: Unhandled keyword:", st[0].value)
+	} else if st[0].T == BUILTIN {
+		log.Fatalln("Error: Unhandled builtin:", st[0].Value)
+	} else if st[0].T == KEYWORD {
+		log.Fatalln("Error: Unhandled keyword:", st[0].Value)
 	}
 	log.Println("Error: Unfamiliar statement layout: ")
 	for _, token := range []Token(st) {
