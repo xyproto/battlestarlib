@@ -28,17 +28,17 @@ type ParseState struct {
 
 // TargetConfig contains information about the current platform and compile target
 type TargetConfig struct {
-	macOS          bool
 	platformBits   int
+	macOS          bool
 	bootableKernel bool
 }
 
 // NewTargetConfig returns an new TargetConfig struct with a few options set.
-// macOS should be true if targeting Darwin / OS X / macOS
 // platformBits should be 16, 32 or 64
+// macOS should be true if targeting Darwin / OS X / macOS
 // bootableKernel should be set to true if this is for building a bootable kernel
-func NewTargetConfig(macOS bool, platformBits int, bootableKernel bool) *TargetConfig {
-	return &TargetConfig{macOS, platformBits, bootableKernel}
+func NewTargetConfig(platformBits int, macOS, bootableKernel bool) *TargetConfig {
+	return &TargetConfig{platformBits, macOS, bootableKernel}
 }
 
 // is64bit determines if the given register name looks like the 64-bit version of the general purpose registers
