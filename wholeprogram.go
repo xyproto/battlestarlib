@@ -70,9 +70,9 @@ func ExtractInlineC(code string, debug bool) string {
 	return clines
 }
 
-func AddExternMainIfMissing(btsCode string) string {
-	// If there is a line starting with "void main", or "int main" but no line starting with "extern main",
-	// add "extern main" at the top.
+// AddExternMainIfMissing will add "extern main" at the top if
+// there is a line starting with "void main", or "int main" but no line starting with "extern main".
+func (config *TargetConfig) AddExternMainIfMissing(btsCode string) string {
 	foundMain := false
 	foundExtern := false
 	trimline := ""
@@ -95,8 +95,9 @@ func AddExternMainIfMissing(btsCode string) string {
 	return btsCode
 }
 
+// AddStartingPointIfMissing will check if the resulting code contains a starting point or not,
+// and add one if it is missing.
 func (config *TargetConfig) AddStartingPointIfMissing(asmcode string, ps *ProgramState) string {
-	// Check if the resulting code contains a starting point or not
 	if strings.Contains(asmcode, "extern "+config.LinkerStartFunction) {
 		log.Println("External starting point for linker, not adding one.")
 		return asmcode
@@ -125,12 +126,14 @@ func (config *TargetConfig) AddStartingPointIfMissing(asmcode string, ps *Progra
 	return asmcode
 }
 
-func AddExitTokenIfMissing(tokens []Token) []Token {
+// AddExitTokenIfMissing will check if the code has an exit or ret and
+// will add an exit call if it's missing.
+func (config *TargetConfig) AddExitTokenIfMissing(tokens []Token) []Token {
 	var (
-		twolast   []Token
-		lasttoken Token
+		twolast        []Token
+		lasttoken      Token
+		filteredTokens = filtertokens(tokens, only([]TokenType{KEYWORD, BUILTIN, VALUE}))
 	)
-	filteredTokens := filtertokens(tokens, only([]TokenType{KEYWORD, BUILTIN, VALUE}))
 	if len(filteredTokens) >= 2 {
 		twolast = filteredTokens[len(filteredTokens)-2:]
 		if twolast[1].T == VALUE {
