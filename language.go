@@ -21,7 +21,7 @@ var (
 	reserved = []string{"funparam", "sysparam", "a", "b", "c", "d"} // built-in lists that can be accessed with [index], or register aliases
 )
 
-func is_qualifier(s string) bool {
+func qualifier(s string) bool {
 	switch s {
 	case "byte", "BYTE", "word", "WORD", "dword", "DWORD", "ptr", "PTR", "short", "SHORT", "long", "LONG":
 		return true
@@ -29,11 +29,11 @@ func is_qualifier(s string) bool {
 	return false
 }
 
-func is_valid_name(s string) bool {
+func validName(s string) bool {
 	if len(s) == 0 {
 		return false
 	}
-	if is_qualifier(s) {
+	if qualifier(s) {
 		return false
 	}
 	// TODO: These could be global constants instead
@@ -73,7 +73,7 @@ func removecomments(s string) string {
 }
 
 // Replace \n, \t, \r and \0 with the appropriate values
-func string_replacements(s string) string {
+func stringReplacements(s string) string {
 	rtable := map[string]int{"\\t": 9, "\\n": 10, "\\r": 13, "\\0": 0}
 	for key, value := range rtable {
 		if strings.Contains(s, key) {
@@ -87,12 +87,12 @@ func string_replacements(s string) string {
 	return s
 }
 
-func is_value(s string) bool {
+func isValue(s string) bool {
 	_, err := strconv.Atoi(s)
 	return err == nil
 }
 
-func (config *Config) reserved_and_value(st Statement) string {
+func (config *TargetConfig) reservedAndValue(st Statement) string {
 	if st[0].value == "funparam" {
 		paramoffset, err := strconv.Atoi(st[1].value)
 		if err != nil {
@@ -104,10 +104,10 @@ func (config *Config) reserved_and_value(st Statement) string {
 		if err != nil {
 			log.Fatalln("Error: Invalid offset for", st[0].value+":", st[1].value)
 		}
-		if paramoffset >= len(interrupt_parameter_registers) {
+		if paramoffset >= len(interruptParameterRegisters) {
 			log.Fatalln("Error: Invalid offset for", st[0].value+":", st[1].value, "(too high)")
 		}
-		return interrupt_parameter_registers[paramoffset]
+		return interruptParameterRegisters[paramoffset]
 	} else {
 		// TODO: Implement support for other lists
 		log.Fatalln("Error: Can only handle \"funparam\" and \"sysparam\" reserved words.")

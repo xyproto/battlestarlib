@@ -5,13 +5,14 @@ import (
 	"strings"
 )
 
+// These are constants that each represent a different type of token
 const (
-	REGISTER       = 0
+	REGISTER       = 0 // a register, like "rax" or "di"
 	ASSIGNMENT     = 1
 	VALUE          = 2
 	KEYWORD        = 3
 	BUILTIN        = 4
-	VALID_NAME     = 5
+	VALIDNAME      = 5
 	STRING         = 6
 	DISREGARD      = 7
 	RESERVED       = 8
@@ -46,13 +47,15 @@ var (
 	tokenDebug     = false
 	newTokensDebug = true
 
-	token_to_string = TokenDescriptions{REGISTER: "register", ASSIGNMENT: "assignment", VALUE: "value", VALID_NAME: "name", SEP: ";", UNKNOWN: "?", KEYWORD: "keyword", STRING: "string", BUILTIN: "built-in", DISREGARD: "disregard", RESERVED: "reserved", VARIABLE: "variable", ADDITION: "addition", SUBTRACTION: "subtraction", MULTIPLICATION: "multiplication", DIVISION: "division", COMPARISON: "comparison", ARROW: "stack operation", MEMEXP: "address expression", ASMLABEL: "assembly label", AND: "and", XOR: "xor", OR: "or", ROL: "rol", ROR: "ror", CONCAT: "concatenation", SEGOFS: "segment+offset", SHL: "shl", SHR: "shr", QUAL: "qualifier", XCHG: "xchg", OUT: "out", IN: "in"}
+	tokenToString = TokenDescriptions{REGISTER: "register", ASSIGNMENT: "assignment", VALUE: "value", VALIDNAME: "name", SEP: ";", UNKNOWN: "?", KEYWORD: "keyword", STRING: "string", BUILTIN: "built-in", DISREGARD: "disregard", RESERVED: "reserved", VARIABLE: "variable", ADDITION: "addition", SUBTRACTION: "subtraction", MULTIPLICATION: "multiplication", DIVISION: "division", COMPARISON: "comparison", ARROW: "stack operation", MEMEXP: "address expression", ASMLABEL: "assembly label", AND: "and", XOR: "xor", OR: "or", ROL: "rol", ROR: "ror", CONCAT: "concatenation", SEGOFS: "segment+offset", SHL: "shl", SHR: "shr", QUAL: "qualifier", XCHG: "xchg", OUT: "out", IN: "in"}
 	// see also the top of language.go, when adding tokens
 )
 
 type (
+	// TokenType is one of the above token constants
 	TokenType int
 
+	// Token contains everything needed to know about a parsed token
 	Token struct {
 		t     TokenType
 		value string
@@ -60,8 +63,11 @@ type (
 		extra string // Used when coverting from register to string
 	}
 
+	// TokenDescriptions is a map from int to string
 	TokenDescriptions map[TokenType]string
-	Statement         []Token
+
+	// Statement is a slice of tokens
+	Statement []Token
 )
 
 // Check if a given map has a given key
@@ -74,8 +80,8 @@ func haskey(sm map[TokenType]string, key TokenType) bool {
 func (tok Token) String() string {
 	if tok.t == SEP {
 		return ";"
-	} else if haskey(token_to_string, tok.t) {
-		return token_to_string[tok.t] + ":" + tok.value
+	} else if haskey(tokenToString, tok.t) {
+		return tokenToString[tok.t] + ":" + tok.value
 	}
 	log.Fatalln("Error: Unfamiliar token when representing as string: " + tok.value)
 	return "!?"
@@ -85,15 +91,15 @@ func (tok Token) String() string {
 func (toktyp TokenType) String() string {
 	if toktyp == SEP {
 		return ";"
-	} else if haskey(token_to_string, toktyp) {
-		return token_to_string[toktyp]
+	} else if haskey(tokenToString, toktyp) {
+		return tokenToString[toktyp]
 	}
 	log.Fatalln("Error when serializing: Unfamiliar token type when representing tokentype as string: ", int(toktyp))
 	return "!?"
 }
 
 // Split a string into more tokens and tokenize them
-func (config *Config) retokenize(word string, sep string) []Token {
+func (config *TargetConfig) retokenize(word string, sep string) []Token {
 	var newtokens []Token
 	words := strings.Split(word, sep)
 	for _, s := range words {
@@ -121,7 +127,7 @@ func lognewtokens(tokens []Token) {
 }
 
 // Tokenize a string
-func (config *Config) tokenize(program, sep string) []Token {
+func (config *TargetConfig) tokenize(program, sep string) []Token {
 	statements := maps(maps(strings.Split(program, "\n"), strings.TrimSpace), removecomments)
 	tokens := make([]Token, 0)
 	var (
@@ -130,13 +136,13 @@ func (config *Config) tokenize(program, sep string) []Token {
 		constexpr   = false // Are we in a constant expression?
 		varexpr     = false // Are we in a variable expression?
 		collected   string  // Collected string, until end of line
-		inline_c    = false // Are we in parts of the code that are inline_c ... end ?
-		c_block     = false // Are we in parts of the code that are void ... } ?
+		inlineC     = false // Are we in parts of the code that are inline_c ... end ?
+		cBlock      = false // Are we in parts of the code that are void ... } ?
 		statementnr uint
 	)
-	for statementnr_int, statement := range statements {
+	for statementnrInt, statement := range statements {
 		// TODO: Use line number instead of statement number (but statement numbers are better than nothing)
-		statementnr = uint(statementnr_int)
+		statementnr = uint(statementnrInt)
 		words := maps(strings.Split(statement, " "), strings.TrimSpace)
 
 		if len(words) == 0 {
@@ -152,33 +158,33 @@ func (config *Config) tokenize(program, sep string) []Token {
 				// Automatically added
 				//log.Println("Remember to add \"extern main\" at the top of the file!")
 			}
-			c_block = true
+			cBlock = true
 			// Skip the start of this type of inline C, don't include "void" as a token
 			continue
-		} else if inline_c && (words[0] == "end") {
+		} else if inlineC && (words[0] == "end") {
 			if debug {
 				log.Println("Found the end of inline C block")
 			}
 			// End both types of blocks when "end" is encountered
-			inline_c = false
-			c_block = false
+			inlineC = false
+			cBlock = false
 			// Skip the end keyword of this type of inline C block, don't include "end" as a token
 			continue
-		} else if c_block && (words[0] == "}") {
+		} else if cBlock && (words[0] == "}") {
 			if debug {
 				log.Println("Found the } of void C block")
 			}
-			c_block = false
+			cBlock = false
 			// Skip the } keyword of this type of inline C block, don't include "}" as a token
 			continue
 		} else if words[0] == "inline_c" {
 			if debug {
 				log.Println("Found inline_c, starting inline C block")
 			}
-			inline_c = true
+			inlineC = true
 			// Skip the start of this type of inline C, don't include "inline_c" as a token
 			continue
-		} else if inline_c || c_block {
+		} else if inlineC || cBlock {
 			// In a block of inline code, skip and don't include as tokens
 			// log.Println("Skipping when tokenizing:", words)
 			continue
@@ -271,7 +277,7 @@ func (config *Config) tokenize(program, sep string) []Token {
 				}
 				tokens = append(tokens, t)
 				logtoken(t)
-			} else if is_value(word) {
+			} else if isValue(word) {
 				t = Token{VALUE, word, statementnr, ""}
 				tokens = append(tokens, t)
 				logtoken(t)
@@ -289,11 +295,11 @@ func (config *Config) tokenize(program, sep string) []Token {
 				newtokens := config.retokenize(firstpart+" -= 1", " ")
 				tokens = append(tokens, newtokens...)
 				lognewtokens(newtokens)
-			} else if is_valid_name(word) {
-				t = Token{VALID_NAME, word, statementnr, ""}
+			} else if validName(word) {
+				t = Token{VALIDNAME, word, statementnr, ""}
 				tokens = append(tokens, t)
 				logtoken(t)
-			} else if is_qualifier(word) {
+			} else if qualifier(word) {
 				t = Token{QUAL, word, statementnr, ""}
 				tokens = append(tokens, t)
 				logtoken(t)
@@ -377,7 +383,7 @@ func (config *Config) tokenize(program, sep string) []Token {
 				log.Println("EXITING STRING AT END OF STATEMENT")
 				log.Println("STRING:", collected)
 			}
-			t = Token{STRING, string_replacements(collected), statementnr, ""}
+			t = Token{STRING, stringReplacements(collected), statementnr, ""}
 			tokens = append(tokens, t)
 			instring = false
 			collected = ""
@@ -392,21 +398,21 @@ func (config *Config) tokenize(program, sep string) []Token {
 
 // Replace built-in function calls with more basic code
 // Note that only replacements that can be done within one statement will work!
-func (config *Config) reduce(st Statement, debug bool, ps *ProgramState) Statement {
+func (config *TargetConfig) reduce(st Statement, debug bool, ps *ProgramState) Statement {
 	for i := 0; i < (len(st) - 1); i++ {
 		if (st[i].t == BUILTIN) && (st[i].value == "len") {
 			// The built-in len() function
 
 			var name string
-			var token_type TokenType
+			var tokenType TokenType
 
-			if st[i+1].t == VALID_NAME {
+			if st[i+1].t == VALIDNAME {
 				// len followed by a valid name
 				// replace with the length of the given value
 
 				name = st[i+1].value
 
-				if !has(ps.defined_names, name) {
+				if !has(ps.definedNames, name) {
 					log.Fatalln("Error:", name, "is unfamiliar. Can not find length.")
 				}
 
@@ -421,16 +427,16 @@ func (config *Config) reduce(st Statement, debug bool, ps *ProgramState) Stateme
 				//	st[i] = Token{token_type, strconv.Itoa(length), st[0].line, ""}
 				//} else {
 
-				token_type = st[i+1].t
+				tokenType = st[i+1].t
 
 				// remove the element at i+1
 				st = st[:i+1+copy(st[i+1:], st[i+2:])]
 
 				// replace len(name) with _length_of_name, or [_length_of_name] if it's in .bss
 				if _, ok := ps.variables[name]; ok {
-					st[i] = Token{token_type, "[_length_of_" + name + "]", st[0].line, ""}
+					st[i] = Token{tokenType, "[_length_of_" + name + "]", st[0].line, ""}
 				} else {
-					st[i] = Token{token_type, "_length_of_" + name, st[0].line, ""}
+					st[i] = Token{tokenType, "_length_of_" + name, st[0].line, ""}
 				}
 			} else if st[i+1].t == REGISTER {
 				var length string
@@ -455,7 +461,7 @@ func (config *Config) reduce(st Statement, debug bool, ps *ProgramState) Stateme
 			}
 		} else if (st[i].t == BUILTIN) && (st[i].value == "print") && (st[i+1].t == STRING) {
 			log.Fatalln("Error: print can only print const strings, not immediate strings")
-		} else if (st[i].t == BUILTIN) && (st[i].value == "print") && ((st[i+1].t == VALID_NAME) || (st[i+1].t == REGISTER)) {
+		} else if (st[i].t == BUILTIN) && (st[i].value == "print") && ((st[i+1].t == VALIDNAME) || (st[i+1].t == REGISTER)) {
 			// replace print(msg) with
 			// int(0x80, 4, 1, msg, len(msg)) on 32-bit
 			// syscall(1, msg, len(msg)) on 64-bit
@@ -501,7 +507,7 @@ func (config *Config) reduce(st Statement, debug bool, ps *ProgramState) Stateme
 			tokens[tokenpos].extra = extra
 			// Replace the current statement with the newly generated tokens
 			st = tokens
-		} else if (st[i].t == BUILTIN) && (st[i].value == "chr") && (st[i+1].t == VALID_NAME) {
+		} else if (st[i].t == BUILTIN) && (st[i].value == "chr") && (st[i+1].t == VALIDNAME) {
 			log.Fatalln("Error: str of a defined name is to be implemented")
 		} else if (st[i].t == BUILTIN) && (st[i].value == "chr") && (st[i+1].t == REGISTER) {
 			register := st[i+1].value
@@ -527,7 +533,8 @@ func (config *Config) reduce(st Statement, debug bool, ps *ProgramState) Stateme
 	return st
 }
 
-func (config *Config) TokensToAssembly(tokens []Token, debug bool, debug2 bool, ps *ProgramState) (string, string) {
+// TokensToAssembly outputs assembly code given a compilation target config and a slice of tokens
+func (config *TargetConfig) TokensToAssembly(tokens []Token, debug bool, debug2 bool, ps *ProgramState) (string, string) {
 	statement := []Token{}
 	asmcode := ""
 	constants := ""
@@ -564,7 +571,7 @@ func (config *Config) TokensToAssembly(tokens []Token, debug bool, debug2 bool, 
 	return strings.TrimSpace(constants), asmcode
 }
 
-// Creates and returns a function that can check if
+// TokenFilter is a function that can check if
 // a given token is one of the allowed types
 type TokenFilter (func(Token) bool)
 

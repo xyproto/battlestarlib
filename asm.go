@@ -18,25 +18,37 @@ var (
 		"r10", "r11", "r12", "r13", "r14", "r15", "sil", "dil", "spl", "bpl",
 		"xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15"} // 64-bit
 
-	interrupt_parameter_registers []string
+	interruptParameterRegisters []string
 )
 
+// ParseState keeps track of the current state when parsing
 type ParseState struct {
 	inlineC bool // currently in a block of inline C?
 }
 
-func is_64_bit_register(reg string) bool {
+// TargetConfig contains information about the current platform and compile target
+type TargetConfig struct {
+	macOS          bool
+	platformBits   int
+	bootableKernel bool
+}
+
+// NewTargetConfig returns an new TargetConfig struct with a few options set.
+// macOS should be true if targeting Darwin / OS X / macOS
+// platformBits should be 16, 32 or 64
+// bootableKernel should be set to true if this is for building a bootable kernel
+func NewTargetConfig(macOS bool, platformBits int, bootableKernel bool) *TargetConfig {
+	return &TargetConfig{macOS, platformBits, bootableKernel}
+}
+
+// is64bit determines if the given register name looks like the 64-bit version of the general purpose registers
+func is64bit(reg string) bool {
 	// Anything after "rax" (including)
 	return pos(registers, reg) >= pos(registers, "rax")
 }
 
-type Config struct {
-	osx             bool
-	platformBits    int
-	bootable_kernel bool
-}
-
-func is_32_bit_register(reg string) bool {
+// is32bit determines if the given register name looks like the 32-bit version of the general purpose registers
+func is32bit(reg string) bool {
 	regPos := pos(registers, reg)
 	eaxPos := pos(registers, "eax")
 	raxPos := pos(registers, "rax")
@@ -44,7 +56,8 @@ func is_32_bit_register(reg string) bool {
 	return (eaxPos <= regPos) && (regPos < raxPos)
 }
 
-func is_16_bit_register(reg string) bool {
+// is16bit determines if the given register name looks like the 16-bit version of the general purpose registers
+func is16bit(reg string) bool {
 	regPos := pos(registers, reg)
 	axPos := pos(registers, "ax")
 	eaxPos := pos(registers, "eax")
@@ -53,8 +66,11 @@ func is_16_bit_register(reg string) bool {
 }
 
 // Try to find the 32-bit version of a 64-bit register, or a 16-bit version of a 32-bit register
-// Requires the string to be non-empty
+// If given an empty string, an empty string is returned.
 func downgrade(reg string) string {
+	if len(reg) == 0 {
+		return reg
+	}
 	if reg[0] == 'r' {
 		return "e" + reg[1:]
 	}
@@ -83,7 +99,7 @@ func regToDouble(reg string) string {
 	return upgrade(upgrade(downgradeToByte(reg)))
 }
 
-func upgrade_8bit_register_to_16bit(reg string) string {
+func upgrade8bitRegisterTo16bit(reg string) string {
 	if len(reg) >= 2 && reg[1] == 'l' {
 		return string(reg[0]) + "x"
 	} else if len(reg) >= 2 && reg[1] == 'h' {
@@ -95,33 +111,33 @@ func upgrade_8bit_register_to_16bit(reg string) string {
 // Try to find the 64-bit version of a 32-bit register, or a 32-bit version of a 16-bit register.
 // Requires the string to be non-empty.
 func upgrade(reg string) string {
-	if (reg[0] == 'e') && is_64_bit_register("r"+reg[1:]) {
+	if (reg[0] == 'e') && is64bit("r"+reg[1:]) {
 		return "r" + reg[1:]
 	}
-	if is_32_bit_register("e" + reg) {
+	if is32bit("e" + reg) {
 		return "e" + reg
 	}
-	if is_16_bit_register(upgrade_8bit_register_to_16bit(reg)) {
-		return upgrade_8bit_register_to_16bit(reg)
+	if is16bit(upgrade8bitRegisterTo16bit(reg)) {
+		return upgrade8bitRegisterTo16bit(reg)
 	}
 	return reg
 }
 
 // Checks if the register is one of the a registers.
-func register_a(reg string) bool {
+func registerA(reg string) bool {
 	return (reg == "ax") || (reg == "eax") || (reg == "rax") || (reg == "al") || (reg == "ah")
 }
 
-func init_interrupt_parameter_registers(bits int) {
+func initInterruptParameterRegisters(bits int) {
 	// Used when calling interrupts (or syscall)
 	if bits == 32 {
-		interrupt_parameter_registers = []string{"eax", "ebx", "ecx", "edx"}
+		interruptParameterRegisters = []string{"eax", "ebx", "ecx", "edx"}
 	} else {
-		interrupt_parameter_registers = []string{"rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9"}
+		interruptParameterRegisters = []string{"rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9"}
 	}
 }
 
-func (config *Config) paramnum2reg(num int) string {
+func (config *TargetConfig) paramnum2reg(num int) string {
 	var offset, reg string
 	switch config.platformBits {
 	case 64:
@@ -184,7 +200,7 @@ func (config *Config) paramnum2reg(num int) string {
 	return "[" + reg + "+" + offset + "]"
 }
 
-func (config *Config) counter_register() string {
+func (config *TargetConfig) counterRegister() string {
 	switch config.platformBits {
 	case 16:
 		return "cx"
@@ -198,7 +214,7 @@ func (config *Config) counter_register() string {
 	}
 }
 
-func (config *Config) syscallOrInterrupt(st Statement, syscall bool) string {
+func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) string {
 	var i int
 
 	if !syscall {
@@ -230,19 +246,19 @@ func (config *Config) syscallOrInterrupt(st Statement, syscall bool) string {
 		preskip = 1
 	}
 
-	from_i := preskip //inclusive
-	to_i := len(st)   // exclusive
-	step_i := 1
-	if config.osx {
+	fromI := preskip //inclusive
+	toI := len(st)   // exclusive
+	stepI := 1
+	if config.macOS {
 		// arguments are pushed in the opposite order for BSD/OSX (32-bit)
-		from_i = len(st) - 1 // inclusive
-		to_i = 1             // exclusive
-		step_i = -1
+		fromI = len(st) - 1 // inclusive
+		toI = 1             // exclusive
+		stepI = -1
 	}
-	first_i := from_i       // 2 for others, len(st)=1 for OSX/BSD
-	last_i := to_i - step_i // 2 for OSX/BSD, len(st)-1 for others
-	for i := from_i; i != to_i; i += step_i {
-		if (i - preskip) >= len(interrupt_parameter_registers) {
+	firstI := fromI      // 2 for others, len(st)=1 for OSX/BSD
+	lastI := toI - stepI // 2 for OSX/BSD, len(st)-1 for others
+	for i := fromI; i != toI; i += stepI {
+		if (i - preskip) >= len(interruptParameterRegisters) {
 			log.Println("Error: Too many parameters for interrupt call:")
 			for _, t := range st {
 				log.Println(t.value)
@@ -250,9 +266,9 @@ func (config *Config) syscallOrInterrupt(st Statement, syscall bool) string {
 			os.Exit(1)
 			break
 		}
-		reg = interrupt_parameter_registers[i-preskip]
+		reg = interruptParameterRegisters[i-preskip]
 		n = strconv.Itoa(i - preskip)
-		if (config.osx && (i == last_i)) || (!config.osx && (i == first_i)) {
+		if (config.macOS && (i == lastI)) || (!config.macOS && (i == firstI)) {
 			comment = "function call: " + st[i].value
 		} else {
 			if st[i].t == VALUE {
@@ -264,7 +280,7 @@ func (config *Config) syscallOrInterrupt(st Statement, syscall bool) string {
 					if st[i].value == "_" {
 						// When _ is given, use the value already in the corresponding register
 						comment = "parameter #" + n + " is supposedly already set"
-					} else if has(data_not_value_types, st[i].value) {
+					} else if has(dataNotValueTypes, st[i].value) {
 						comment = "parameter #" + n + " is " + "&" + st[i].value
 					} else {
 						comment = "parameter #" + n + " is " + st[i].value
@@ -272,19 +288,19 @@ func (config *Config) syscallOrInterrupt(st Statement, syscall bool) string {
 						switch config.platformBits {
 						case 64:
 							if st[i].value == "rsp" {
-								if is_64_bit_register(st[i].extra) {
+								if is64bit(st[i].extra) {
 									// Put the value of the register associated with this token at rbp
 									precode += "\tsub rsp, 8\t\t\t; make some space for storing " + st[i].extra + " on the stack\n"
 									precode += "\tmov QWORD [rsp], " + st[i].extra + "\t\t; move " + st[i].extra + " to a memory location on the stack\n"
 									postcode += "\tadd rsp, 8\t\t\t; move the stack pointer back\n"
 									break
-								} else if is_32_bit_register(st[i].extra) {
+								} else if is32bit(st[i].extra) {
 									// Put the value of the register associated with this token at rbp
 									precode += "\tsub rsp, 8\t\t\t; make some space for storing " + st[i].extra + " on the stack\n"
 									precode += "\tmov QWORD [rsp], " + upgrade(st[i].extra) + "\t\t; move " + st[i].extra + " to a memory location on the stack\n"
 									postcode += "\tadd rsp, 8\t\t\t; move the stack pointer back\n"
 									break
-								} else if is_16_bit_register(st[i].extra) {
+								} else if is16bit(st[i].extra) {
 									// Put the value of the register associated with this token at rbp
 									precode += "\tsub rsp, 8\t\t\t; make some space for storing " + st[i].extra + " on the stack\n"
 									precode += "\tmov QWORD [rsp], " + upgrade(upgrade(st[i].extra)) + "\t\t; move " + st[i].extra + " to a memory location on the stack\n"
@@ -295,12 +311,12 @@ func (config *Config) syscallOrInterrupt(st Statement, syscall bool) string {
 							}
 						case 32:
 							if st[i].value == "esp" {
-								if is_32_bit_register(st[i].extra) {
+								if is32bit(st[i].extra) {
 									precode += "\tsub esp, 4\t\t\t; make some space for storing " + st[i].extra + " on the stack\n"
 									precode += "\tmov DWORD [esp], " + st[i].extra + "\t\t; move " + st[i].extra + " to a memory location on the stack\n"
 									postcode += "\tadd esp, 4\t\t\t; move the stack pointer back\n"
 									break
-								} else if is_16_bit_register(st[i].extra) {
+								} else if is16bit(st[i].extra) {
 									precode += "\tsub esp, 4\t\t\t; make some space for storing " + st[i].extra + " on the stack\n"
 									precode += "\tmov DWORD [esp], " + upgrade(st[i].extra) + "\t\t; move " + st[i].extra + " to a memory location on the stack\n"
 									postcode += "\tadd esp, 4\t\t\t; move the stack pointer back\n"
@@ -329,8 +345,8 @@ func (config *Config) syscallOrInterrupt(st Statement, syscall bool) string {
 			if st[i].value == "0" {
 				codeline += "\txor " + reg + ", " + reg
 			} else {
-				if config.osx {
-					if i == last_i {
+				if config.macOS {
+					if i == lastI {
 						codeline += "\tmov " + reg + ", " + st[i].value
 					} else {
 						codeline += "\tpush dword " + st[i].value
@@ -362,7 +378,7 @@ func (config *Config) syscallOrInterrupt(st Statement, syscall bool) string {
 	}
 	// Add the interrupt call
 	if syscall || (st[1].t == VALUE) {
-		if config.osx {
+		if config.macOS {
 			// just the way function calls are made on BSD/OSX
 			asmcode += "\tsub esp, 4\t\t\t; BSD system call preparation\n"
 		}
@@ -377,19 +393,18 @@ func (config *Config) syscallOrInterrupt(st Statement, syscall bool) string {
 			}
 			asmcode += st[1].value + "\t\t\t; perform the call\n"
 		}
-		if config.osx {
+		if config.macOS {
 			pushcount := len(st) - 2
 			displacement := strconv.Itoa(pushcount * 4) // 4 bytes per push
 			asmcode += "\tadd esp, " + displacement + "\t\t\t; BSD system call cleanup\n"
 		}
 		return precode + asmcode + postcode
-	} else {
-		log.Fatalln("Error: Need a (hexadecimal) interrupt number to call:\n", st[1].value)
 	}
+	log.Fatalln("Error: Need a (hexadecimal) interrupt number to call:\n", st[1].value)
 	return ""
 }
 
-func (st Statement) String(ps *ProgramState, config *Config) string {
+func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 	debug := true
 
 	var parseState ParseState
@@ -407,17 +422,17 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		return config.syscallOrInterrupt(st, true)
 	} else if (st[0].t == KEYWORD) && (st[0].value == "var") && (len(st) >= 3) { // variable / bss declaration
 		varname := ""
-		if st[1].t == VALID_NAME {
+		if st[1].t == VALIDNAME {
 			varname = st[1].value
 		} else {
 			log.Fatalln("Error: "+st[1].value, "is not a valid name for a variable")
 		}
 		bsscode := ""
-		if (st[1].t == VALID_NAME) && ((st[2].t == VALUE) || (strings.HasPrefix(st[2].value, "_length_of_"))) {
-			if has(ps.defined_names, varname) {
+		if (st[1].t == VALIDNAME) && ((st[2].t == VALUE) || (strings.HasPrefix(st[2].value, "_length_of_"))) {
+			if has(ps.definedNames, varname) {
 				log.Fatalln("Error: Can not declare variable, name is already defined: " + varname)
 			}
-			ps.defined_names = append(ps.defined_names, varname)
+			ps.definedNames = append(ps.definedNames, varname)
 			// Store the name of the declared variable in variables + the length
 			if !strings.HasPrefix(st[2].value, "_length_of_") {
 				var err error
@@ -449,21 +464,21 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		os.Exit(1)
 	} else if (st[0].t == KEYWORD) && (st[0].value == "const") && (len(st) >= 4) { // constant data
 		constname := ""
-		if st[1].t == VALID_NAME {
+		if st[1].t == VALIDNAME {
 			constname = st[1].value
 		} else {
 			log.Fatalln("Error: "+st[1].value, " (or a,b,c,d) is not a valid name for a constant")
 		}
 		asmcode := ""
-		if (st[1].t == VALID_NAME) && (st[2].t == ASSIGNMENT) && ((st[3].t == STRING) || (st[3].t == VALUE) || (st[3].t == VALID_NAME)) {
-			if has(ps.defined_names, constname) {
+		if (st[1].t == VALIDNAME) && (st[2].t == ASSIGNMENT) && ((st[3].t == STRING) || (st[3].t == VALUE) || (st[3].t == VALIDNAME)) {
+			if has(ps.definedNames, constname) {
 				log.Fatalln("Error: Can not declare constant, name is already defined: " + constname)
 			}
-			if (st[3].t == VALID_NAME) && !has(ps.defined_names, st[3].value) {
+			if (st[3].t == VALIDNAME) && !has(ps.definedNames, st[3].value) {
 				log.Fatalln("Error: Can't assign", st[3].value, "to", st[1].value, "because", st[3].value, "is undefined.")
 			}
 			// Store the name of the declared constant in defined_names
-			ps.defined_names = append(ps.defined_names, constname)
+			ps.definedNames = append(ps.definedNames, constname)
 			// For the .DATA section (recognized by the keyword)
 			if st[3].t == VALUE {
 				switch config.platformBits {
@@ -476,7 +491,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 				}
 			} else {
 				asmcode += constname + ":\tdb "
-				data_not_value_types = append(data_not_value_types, constname)
+				dataNotValueTypes = append(dataNotValueTypes, constname)
 			}
 			for i := 3; i < len(st); i++ {
 				asmcode += st[i].value
@@ -504,7 +519,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 			log.Println(t.value)
 		}
 		os.Exit(1)
-	} else if (len(st) > 2) && (st[0].t == VALID_NAME) && (st[1].t == ASSIGNMENT) {
+	} else if (len(st) > 2) && (st[0].t == VALIDNAME) && (st[1].t == ASSIGNMENT) {
 		// Copying data from constants to variables (reserved memory in the .bss section)
 		asmcode := ""
 		from := st[2].value
@@ -538,7 +553,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 			asmcode += "\trep movsb\t\t\t\t; copy bytes\n"
 		}
 		return asmcode
-	} else if (len(st) > 2) && ((st[1].t == ADDITION) && (st[0].t == VALID_NAME) && (st[2].t == VALID_NAME)) {
+	} else if (len(st) > 2) && ((st[1].t == ADDITION) && (st[0].t == VALIDNAME) && (st[2].t == VALIDNAME)) {
 		// Copying data from constants to variables (reserved memory in the .bss section)
 		asmcode := ""
 		from := st[2].value
@@ -580,7 +595,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		asmcode += "\thlt\n"
 		asmcode += "\tjmp .hang\t; loop forever\n\n"
 		return asmcode
-	} else if (config.platformBits == 16) && (st[0].t == BUILTIN) && (st[0].value == "print") && (st[1].t == VALID_NAME) {
+	} else if (config.platformBits == 16) && (st[0].t == BUILTIN) && (st[0].value == "print") && (st[1].t == VALIDNAME) {
 		asmcode := "\t; --- output string of given length ---\n"
 		asmcode += "\tmov dx, " + st[1].value + "\n"
 		if _, ok := ps.variables[st[1].value]; ok {
@@ -596,7 +611,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 	} else if ((st[0].t == KEYWORD) && (st[0].value == "ret")) || ((st[0].t == BUILTIN) && (st[0].value == "exit")) {
 		asmcode := ""
 		if st[0].value == "ret" {
-			if (ps.in_function == "main") || (ps.in_function == linker_start_function) {
+			if (ps.inFunction == "main") || (ps.inFunction == linkerStartFunction) {
 				//log.Println("Not taking down stack frame in the main/_start/start function.")
 			} else {
 				switch config.platformBits {
@@ -611,46 +626,46 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 				}
 			}
 		}
-		if ps.in_function != "" {
-			if !config.bootable_kernel && !ps.endless && (ps.in_function == "main") {
-				asmcode += "\n\t;--- return from \"" + ps.in_function + "\" ---\n"
+		if ps.inFunction != "" {
+			if !config.bootableKernel && !ps.endless && (ps.inFunction == "main") {
+				asmcode += "\n\t;--- return from \"" + ps.inFunction + "\" ---\n"
 			}
 		} else if st[0].value == "exit" {
 			asmcode += "\t;--- exit program ---\n"
 		} else {
 			asmcode += "\t;--- return ---\n"
 		}
-		if (st[0].value == "exit") || (ps.in_function == "main") || (ps.in_function == linker_start_function) {
+		if (st[0].value == "exit") || (ps.inFunction == "main") || (ps.inFunction == linkerStartFunction) {
 			// Not returning from main/_start/start function, but exiting properly
-			exit_code := "0"
+			exitCode := "0"
 			if (len(st) == 2) && ((st[1].t == VALUE) || (st[1].t == REGISTER)) {
-				exit_code = st[1].value
+				exitCode = st[1].value
 			}
-			if !config.bootable_kernel {
+			if !config.bootableKernel {
 				switch config.platformBits {
 				case 64:
 					asmcode += "\tmov rax, 60\t\t\t; function call: 60\n\t"
-					if exit_code == "0" {
+					if exitCode == "0" {
 						asmcode += "xor rdi, rdi"
 					} else {
-						asmcode += "mov rdi, " + exit_code
+						asmcode += "mov rdi, " + exitCode
 					}
-					asmcode += "\t\t\t; return code " + exit_code + "\n"
+					asmcode += "\t\t\t; return code " + exitCode + "\n"
 					asmcode += "\tsyscall\t\t\t\t; exit program\n"
 				case 32:
-					if config.osx {
-						asmcode += "\tpush dword " + exit_code + "\t\t\t; exit code " + exit_code + "\n"
+					if config.macOS {
+						asmcode += "\tpush dword " + exitCode + "\t\t\t; exit code " + exitCode + "\n"
 						asmcode += "\tsub esp, 4\t\t\t; the BSD way, push then subtract before calling\n"
 					}
 					asmcode += "\tmov eax, 1\t\t\t; function call: 1\n"
-					if !config.osx {
+					if !config.macOS {
 						asmcode += "\t"
-						if exit_code == "0" {
+						if exitCode == "0" {
 							asmcode += "xor ebx, ebx"
 						} else {
-							asmcode += "mov ebx, " + exit_code
+							asmcode += "mov ebx, " + exitCode
 						}
-						asmcode += "\t\t\t; exit code " + exit_code + "\n"
+						asmcode += "\t\t\t; exit code " + exitCode + "\n"
 					}
 					asmcode += "\tint 0x80\t\t\t; exit program\n"
 				case 16:
@@ -658,10 +673,10 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 					if st[0].value == "exit" {
 						// Since we are not building a kernel, calling DOS interrupt 21h makes sense
 						asmcode += "\tmov ah, 0x4c\t\t\t; function 4C\n"
-						if exit_code == "0" {
-							asmcode += "\txor al, al\t\t\t; exit code " + exit_code + "\n"
+						if exitCode == "0" {
+							asmcode += "\txor al, al\t\t\t; exit code " + exitCode + "\n"
 						} else {
-							asmcode += "\tmov al, " + exit_code + "\t\t\t; exit code " + exit_code + "\n"
+							asmcode += "\tmov al, " + exitCode + "\t\t\t; exit code " + exitCode + "\n"
 						}
 						asmcode += "\tint 0x21\t\t\t; exit program\n"
 					} else if st[0].value == "noret" {
@@ -680,17 +695,17 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 				//asmcode += Statement{Token{BUILTIN, "halt", st[0].line, ""}}.String()
 			}
 		} else {
-			log.Println("function ", ps.in_function)
+			log.Println("function ", ps.inFunction)
 			// Do not return eax=0/rax=0 if no return value is explicitly provided, by design
 			// This allows the return value from the previous call to be returned instead
 			asmcode += "\tret\t\t\t\t; Return\n"
 		}
-		if ps.in_function != "" {
+		if ps.inFunction != "" {
 			// Exiting from the function definition
-			ps.in_function = ""
+			ps.inFunction = ""
 			// If the function was ended with "exit", don't freak out if an "end" is encountered
 			if st[0].value == "exit" {
-				ps.surprise_ending_with_exit = true
+				ps.surpriseEndingWithExit = true
 			}
 		}
 		if parseState.inlineC {
@@ -699,48 +714,48 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 			return "; End of inline C block"
 		}
 		return asmcode
-	} else if (st[0].t == KEYWORD && st[0].value == "mem") && (st[1].t == VALUE || st[1].t == VALID_NAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALID_NAME || st[3].t == REGISTER) {
+	} else if (st[0].t == KEYWORD && st[0].value == "mem") && (st[1].t == VALUE || st[1].t == VALIDNAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
 		// memory assignment
 		return "\tmov [" + st[1].value + "], " + st[3].value + "\t\t; " + "memory assignment" + "\n"
-	} else if (st[0].t == KEYWORD && st[0].value == "membyte") && (st[1].t == VALUE || st[1].t == VALID_NAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALID_NAME || st[3].t == REGISTER) {
+	} else if (st[0].t == KEYWORD && st[0].value == "membyte") && (st[1].t == VALUE || st[1].t == VALIDNAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
 		// memory assignment (byte)
 		val := st[3].value
 		if st[3].t == REGISTER {
 			val = downgradeToByte(val)
 		}
 		return "\tmov BYTE [" + st[1].value + "], " + val + "\t\t; " + "memory assignment" + "\n"
-	} else if (st[0].t == KEYWORD && st[0].value == "memword") && (st[1].t == VALUE || st[1].t == VALID_NAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALID_NAME || st[3].t == REGISTER) {
+	} else if (st[0].t == KEYWORD && st[0].value == "memword") && (st[1].t == VALUE || st[1].t == VALIDNAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
 		// memory assignment (word)
 		val := st[3].value
 		if st[3].t == REGISTER {
 			val = regToWord(val)
 		}
 		return "\tmov WORD [" + st[1].value + "], " + val + "\t\t; " + "memory assignment" + "\n"
-	} else if (st[0].t == KEYWORD && st[0].value == "memdouble") && (st[1].t == VALUE || st[1].t == VALID_NAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALID_NAME || st[3].t == REGISTER) {
+	} else if (st[0].t == KEYWORD && st[0].value == "memdouble") && (st[1].t == VALUE || st[1].t == VALIDNAME || st[1].t == REGISTER) && (st[2].t == ASSIGNMENT) && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
 		// memory assignment (double)
 		val := st[3].value
 		if st[3].t == REGISTER {
 			val = regToDouble(val)
 		}
 		return "\tmov DOUBLE [" + st[1].value + "], " + val + "\t\t; " + "memory assignment" + "\n"
-	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "mem") && (st[3].t == VALUE || st[3].t == VALID_NAME || st[3].t == REGISTER) {
+	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "mem") && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
 		// assignment from memory to register
 		return "\tmov " + st[0].value + ", [" + st[3].value + "]\t\t; memory assignment\n"
-	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "readbyte") && (st[3].t == VALUE || st[3].t == VALID_NAME || st[3].t == REGISTER) {
+	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "readbyte") && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
 		// assignment from memory to register (byte)
 		val := st[0].value
 		if st[0].t == REGISTER {
 			val = downgradeToByte(val)
 		}
 		return "\tmov BYTE " + val + ", [" + st[3].value + "]\t\t; memory assignment (byte)\n"
-	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "readword") && (st[3].t == VALUE || st[3].t == VALID_NAME || st[3].t == REGISTER) {
+	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "readword") && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
 		// assignment from memory to register (byte)
 		val := st[0].value
 		if st[0].t == REGISTER {
 			val = regToWord(val)
 		}
 		return "\tmov WORD " + val + ", [" + st[3].value + "]\t\t; memory assignment (word)\n"
-	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "readdouble") && (st[3].t == VALUE || st[3].t == VALID_NAME || st[3].t == REGISTER) {
+	} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == KEYWORD && st[2].value == "readdouble") && (st[3].t == VALUE || st[3].t == VALIDNAME || st[3].t == REGISTER) {
 		// assignment from memory to register (byte)
 		val := st[0].value
 		if st[0].t == REGISTER {
@@ -751,12 +766,12 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		// Statements like "eax = 3" are handled here
 		// TODO: Handle all sorts of equivivalents to assembly statements
 		if st[1].t == COMPARISON {
-			if ps.in_if_block != "" {
+			if ps.inIfBlock != "" {
 				log.Fatalln("Error: Already in an if-block (nested block are to be implemented)")
 			}
-			ps.in_if_block = ps.new_if_label()
+			ps.inIfBlock = ps.newIfLabel()
 
-			asmcode := "\t;--- " + ps.in_if_block + " ---\n"
+			asmcode := "\t;--- " + ps.inIfBlock + " ---\n"
 
 			// Start an if block that is run if the comparison is true
 			// Break if something comparison something
@@ -781,29 +796,27 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 
 			// Which label to jump to (out of the if block)
 			// TODO: Nested if blocks
-			asmcode += " " + ps.in_if_block + "_end\t\t\t; break\n"
+			asmcode += " " + ps.inIfBlock + "_end\t\t\t; break\n"
 			return asmcode
-		} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == VALUE || st[2].t == VALID_NAME) {
+		} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == VALUE || st[2].t == VALIDNAME) {
 			if st[2].value == "0" {
 				return "\txor " + st[0].value + ", " + st[0].value + "\t\t; " + st[0].value + " " + st[1].value + " " + st[2].value
-			} else {
-				a := st[0].value
-				b := st[2].value
-				if is_32_bit_register(a) && is_64_bit_register(b) {
-					log.Println("Warning: Using", b, "as a 32-bit register when assigning.")
-					return "\tmov " + a + ", " + downgrade(b) + "\t\t; " + a + " " + st[1].value + " " + b
-				} else if is_64_bit_register(a) && is_32_bit_register(b) {
-					log.Println("Warning: Using", a, "as a 32-bit register when assigning.")
-					asmcode := "\txor rax, rax\t\t; clear rax\n"
-					asmcode += "\tmov " + downgrade(a) + ", " + b + "\t\t; " + a + " " + st[1].value + " " + b
-					return asmcode
-				} else {
-					return "\tmov " + st[0].value + ", " + st[2].value + "\t\t; " + st[0].value + " " + st[1].value + " " + st[2].value
-				}
-
 			}
-		} else if (st[0].t == VALID_NAME) && (st[1].t == ASSIGNMENT) {
-			if has(ps.defined_names, st[0].value) {
+			a := st[0].value
+			b := st[2].value
+			if is32bit(a) && is64bit(b) {
+				log.Println("Warning: Using", b, "as a 32-bit register when assigning.")
+				return "\tmov " + a + ", " + downgrade(b) + "\t\t; " + a + " " + st[1].value + " " + b
+			} else if is64bit(a) && is32bit(b) {
+				log.Println("Warning: Using", a, "as a 32-bit register when assigning.")
+				asmcode := "\txor rax, rax\t\t; clear rax\n"
+				asmcode += "\tmov " + downgrade(a) + ", " + b + "\t\t; " + a + " " + st[1].value + " " + b
+				return asmcode
+			} else {
+				return "\tmov " + st[0].value + ", " + st[2].value + "\t\t; " + st[0].value + " " + st[1].value + " " + st[2].value
+			}
+		} else if (st[0].t == VALIDNAME) && (st[1].t == ASSIGNMENT) {
+			if has(ps.definedNames, st[0].value) {
 				log.Fatalln("Error:", st[0].value, "has already been defined")
 			} else {
 				log.Fatalln("Error:", st[0].value, "is not recognized as a register (and there is no const qualifier). Can't assign.")
@@ -814,7 +827,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		} else if (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == REGISTER) {
 			return "\tmov " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " " + st[1].value + " " + st[2].value
 		} else if (st[0].t == RESERVED) && (st[1].t == VALUE) {
-			return config.reserved_and_value(st[:2])
+			return config.reservedAndValue(st[:2])
 		} else if (len(st) == 3) && ((st[0].t == REGISTER) || (st[0].value == "stack") || (st[0].t == VALUE)) && (st[1].t == ARROW) && ((st[2].t == REGISTER) || (st[2].value == "stack")) {
 			// push and pop
 			if (st[0].value == "stack") && (st[2].value == "stack") {
@@ -841,35 +854,32 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 				if err != nil {
 					log.Fatalln("Error: Invalid list offset for", st[2].value+":", st[3].value)
 				}
-				param_expression := config.paramnum2reg(paramoffset)
-				if len(param_expression) == 3 {
-					param_expression += "\t"
+				paramExpression := config.paramnum2reg(paramoffset)
+				if len(paramExpression) == 3 {
+					paramExpression += "\t"
 				}
-				return "\tmov " + st[0].value + ", " + param_expression + "\t\t; fetch function param #" + st[3].value + "\n"
-			} else {
-				// TODO: Implement support for other lists
-				log.Fatalln("Error: Can only handle \"funparam\" lists when assigning to a register, so far.")
+				return "\tmov " + st[0].value + ", " + paramExpression + "\t\t; fetch function param #" + st[3].value + "\n"
 			}
+			// TODO: Implement support for other lists
+			log.Fatalln("Error: Can only handle \"funparam\" lists when assigning to a register, so far.")
 		}
 		if (st[1].t == ADDITION) && (st[2].t == REGISTER) {
 			return "\tadd " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " += " + st[2].value
 		} else if (st[1].t == SUBTRACTION) && (st[2].t == REGISTER) {
 			return "\tsub " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " -= " + st[2].value
 		} else if (st[1].t == MULTIPLICATION) && (st[2].t == REGISTER) {
-			if register_a(st[0].value) {
+			if registerA(st[0].value) {
 				return "\tmul " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
-			} else {
-				if st[0].value == st[2].value {
-					return "\timul " + st[0].value + "\t\t\t; " + st[0].value + " *= " + st[0].value
-				}
-				return "\timul " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
 			}
+			if st[0].value == st[2].value {
+				return "\timul " + st[0].value + "\t\t\t; " + st[0].value + " *= " + st[0].value
+			}
+			return "\timul " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
 		} else if (st[1].t == DIVISION) && (st[2].t == REGISTER) {
-			if register_a(st[0].value) {
+			if registerA(st[0].value) {
 				return "\tdiv " + st[2].value + "\t\t\t; " + st[0].value + " /= " + st[2].value
-			} else {
-				return "\tidiv " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " /= " + st[2].value
 			}
+			return "\tidiv " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " /= " + st[2].value
 		}
 		if (st[1].t == ADDITION) && ((st[2].t == VALUE) || (st[2].t == MEMEXP)) {
 			if st[2].value == "1" {
@@ -917,16 +927,14 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 				}
 				// TODO: Check that it works with signed numbers and/or introduce signed/unsigned operations
 				return "\tshl " + st[0].value + ", " + strconv.Itoa(pos) + "\t\t\t; " + st[0].value + " *= " + st[2].value
-			} else {
-				if register_a(st[0].value) {
-					return "\tmul " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
-				} else {
-					if st[0].value == st[2].value {
-						return "\timul " + st[0].value + "\t\t\t; " + st[0].value + " *= " + st[0].value
-					}
-					return "\timul " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
-				}
 			}
+			if registerA(st[0].value) {
+				return "\tmul " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
+			}
+			if st[0].value == st[2].value {
+				return "\timul " + st[0].value + "\t\t\t; " + st[0].value + " *= " + st[0].value
+			}
+			return "\timul " + st[0].value + ", " + st[2].value + "\t\t\t; " + st[0].value + " *= " + st[2].value
 		} else if (st[1].t == DIVISION) && ((st[2].t == VALUE) || (st[2].t == MEMEXP)) {
 			// TODO: Don't use a list, write a function that covers the lot
 			shifts := []string{"2", "4", "8", "16", "32", "64", "128"}
@@ -941,194 +949,192 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 				}
 				// TODO: Check that it works with signed numbers and/or introduce signed/unsigned operations
 				return "\tshr " + st[0].value + ", " + strconv.Itoa(pos) + "\t\t; " + st[0].value + " /= " + st[2].value
-			} else {
-				asmcode := "\n\t;--- signed division: " + st[0].value + " /= " + st[2].value + " ---\n"
-				// TODO Add support for division with 16-bit registers as well!
+			}
+			asmcode := "\n\t;--- signed division: " + st[0].value + " /= " + st[2].value + " ---\n"
+			// TODO Add support for division with 16-bit registers as well!
 
-				if config.platformBits == 32 {
-					if st[0].value == "eax" {
-						// Dividing a 64-bit number in edx:eax by the number in ecx. Clearing out edx and only using 32-bit numbers for now.
-						// If the register to be divided is rax, do a quicker division than if it's another register
+			if config.platformBits == 32 {
+				if st[0].value == "eax" {
+					// Dividing a 64-bit number in edx:eax by the number in ecx. Clearing out edx and only using 32-bit numbers for now.
+					// If the register to be divided is rax, do a quicker division than if it's another register
 
+					// save ecx
+					asmcode += "\tpush ecx\t\t; save ecx\n"
+					//// save edx
+					//asmcode += "\tpush edx\t\t; save edx\n"
+					// clear edx
+					asmcode += "\txor edx, edx\t\t; edx = 0 (32-bit 0:eax instead of 64-bit edx:eax)\n"
+					// ecx = st[2].value
+					asmcode += "\tmov ecx, " + st[2].value + "\t\t; divisor, ecx = " + st[2].value + "\n"
+					// div ecx
+					asmcode += "\tdiv ecx\t\t\t; eax = edx:eax / ecx\n"
+					asmcode += "\t\t\t; remainder is in edx\n"
+					//// restore edx
+					//asmcode += "\tpop edx\t\t; restore edx\n"
+					// restore ecx
+					asmcode += "\tpop ecx\t\t; restore ecx\n"
+				} else if st[0].value == "ax" {
+					// Dividing a 32-bit number in dx:ax by the number in bx. Clearing out dx and only using 16-bit numbers for now.
+					// If the register to be divided is ax, do a quicker division than if it's another register
+
+					// save bx
+					asmcode += "\tpush cx\t\t; save cx\n"
+					//// save dx
+					//asmcode += "\tpush dx\t\t; save dx\n"
+					// clear dx
+					asmcode += "\txor dx, dx\t; dx = 0 (16-bit 0:ax instead of 32-bit dx:ax)\n"
+					// bx = st[2].value
+					asmcode += "\tmov cx, " + st[2].value + "\t; divisor, cx = " + st[2].value + "\n"
+					asmcode += "\t\t\t; remainder is in dx\n"
+					// div bx
+					asmcode += "\tdiv cx\t\t; ax = dx:ax / cx\n"
+					//// restore dx
+					//asmcode += "\tpop dx\t\t; restore dx\n"
+					// restore cx
+					asmcode += "\tpop cx\t\t; restore cx\n"
+				} else {
+					// TODO: if the given register is a different one than eax, ecx and edx,
+					//       just divide directly with that register, like for eax above
+					// save eax, we know this is not where we assign the result
+					asmcode += "\tpush eax\t\t; save eax\n"
+					if st[0].value != "ecx" {
 						// save ecx
 						asmcode += "\tpush ecx\t\t; save ecx\n"
-						//// save edx
-						//asmcode += "\tpush edx\t\t; save edx\n"
-						// clear edx
-						asmcode += "\txor edx, edx\t\t; edx = 0 (32-bit 0:eax instead of 64-bit edx:eax)\n"
-						// ecx = st[2].value
-						asmcode += "\tmov ecx, " + st[2].value + "\t\t; divisor, ecx = " + st[2].value + "\n"
-						// div ecx
-						asmcode += "\tdiv ecx\t\t\t; eax = edx:eax / ecx\n"
-						asmcode += "\t\t\t; remainder is in edx\n"
-						//// restore edx
-						//asmcode += "\tpop edx\t\t; restore edx\n"
+					}
+					if st[0].value != "edx" {
+						// save edx
+						asmcode += "\tpush edx\t\t; save edx\n"
+					}
+					// copy number to be divided to eax
+					if is64bit(st[0].value) {
+						if downgrade(st[0].value) != "eax" {
+							asmcode += "\tmov eax, " + downgrade(st[0].value) + "\t\t; dividend, number to be divided\n"
+						}
+					} else if is16bit(st[0].value) {
+						if upgrade(st[0].value) != "eax" {
+							asmcode += "\tmov eax, " + upgrade(st[0].value) + "\t\t; dividend, number to be divided\n"
+						}
+					} else {
+						if st[0].value != "eax" {
+							asmcode += "\tmov eax, " + st[0].value + "\t\t; dividend, number to be divided\n"
+						}
+					}
+					// clear edx
+					asmcode += "\txor edx, edx\t\t; edx = 0 (32-bit 0:eax instead of 64-bit edx:eax)\n"
+					// ecx = st[2].value
+					asmcode += "\tmov ecx, " + st[2].value + "\t\t; divisor, ecx = " + st[2].value + "\n"
+					// eax = edx:eax / ecx
+					asmcode += "\tdiv ecx\t\t\t; eax = edx:eax / ecx\n"
+					if st[0].value != "edx" {
+						// restore edx
+						asmcode += "\tpop edx\t\t; restore edx\n"
+					}
+					if st[0].value != "ecx" {
 						// restore ecx
 						asmcode += "\tpop ecx\t\t; restore ecx\n"
-					} else if st[0].value == "ax" {
-						// Dividing a 32-bit number in dx:ax by the number in bx. Clearing out dx and only using 16-bit numbers for now.
-						// If the register to be divided is ax, do a quicker division than if it's another register
-
-						// save bx
-						asmcode += "\tpush cx\t\t; save cx\n"
-						//// save dx
-						//asmcode += "\tpush dx\t\t; save dx\n"
-						// clear dx
-						asmcode += "\txor dx, dx\t; dx = 0 (16-bit 0:ax instead of 32-bit dx:ax)\n"
-						// bx = st[2].value
-						asmcode += "\tmov cx, " + st[2].value + "\t; divisor, cx = " + st[2].value + "\n"
-						asmcode += "\t\t\t; remainder is in dx\n"
-						// div bx
-						asmcode += "\tdiv cx\t\t; ax = dx:ax / cx\n"
-						//// restore dx
-						//asmcode += "\tpop dx\t\t; restore dx\n"
-						// restore cx
-						asmcode += "\tpop cx\t\t; restore cx\n"
-					} else {
-						// TODO: if the given register is a different one than eax, ecx and edx,
-						//       just divide directly with that register, like for eax above
-						// save eax, we know this is not where we assign the result
-						asmcode += "\tpush eax\t\t; save eax\n"
-						if st[0].value != "ecx" {
-							// save ecx
-							asmcode += "\tpush ecx\t\t; save ecx\n"
-						}
-						if st[0].value != "edx" {
-							// save edx
-							asmcode += "\tpush edx\t\t; save edx\n"
-						}
-						// copy number to be divided to eax
-						if is_64_bit_register(st[0].value) {
-							if downgrade(st[0].value) != "eax" {
-								asmcode += "\tmov eax, " + downgrade(st[0].value) + "\t\t; dividend, number to be divided\n"
-							}
-						} else if is_16_bit_register(st[0].value) {
-							if upgrade(st[0].value) != "eax" {
-								asmcode += "\tmov eax, " + upgrade(st[0].value) + "\t\t; dividend, number to be divided\n"
-							}
-						} else {
-							if st[0].value != "eax" {
-								asmcode += "\tmov eax, " + st[0].value + "\t\t; dividend, number to be divided\n"
-							}
-						}
-						// clear edx
-						asmcode += "\txor edx, edx\t\t; edx = 0 (32-bit 0:eax instead of 64-bit edx:eax)\n"
-						// ecx = st[2].value
-						asmcode += "\tmov ecx, " + st[2].value + "\t\t; divisor, ecx = " + st[2].value + "\n"
-						// eax = edx:eax / ecx
-						asmcode += "\tdiv ecx\t\t\t; eax = edx:eax / ecx\n"
-						if st[0].value != "edx" {
-							// restore edx
-							asmcode += "\tpop edx\t\t; restore edx\n"
-						}
-						if st[0].value != "ecx" {
-							// restore ecx
-							asmcode += "\tpop ecx\t\t; restore ecx\n"
-						}
-						// st[0].value = eax
-						asmcode += "\tmov " + st[0].value + ", eax\t\t; " + st[0].value + " = eax\n"
-						// restore eax
-						asmcode += "\tpop eax\t\t; restore eax\n"
 					}
-					asmcode += "\n"
-					return asmcode
+					// st[0].value = eax
+					asmcode += "\tmov " + st[0].value + ", eax\t\t; " + st[0].value + " = eax\n"
+					// restore eax
+					asmcode += "\tpop eax\t\t; restore eax\n"
+				}
+				asmcode += "\n"
+				return asmcode
+			}
+			// Dividing a 128-bit number in rdx:rax by the number in rcx. Clearing out rdx and only using 64-bit numbers for now.
+			// If the register to be divided is rax, do a quicker division than if it's another register
+			if st[0].value == "rax" {
+				// save rdx
+				//asmcode += "\tmov r9, rdx\t\t; save rdx\n"
+				// clear rdx
+				asmcode += "\txor rdx, rdx\t\t; rdx = 0 (64-bit 0:rax instead of 128-bit rdx:rax)\n"
+				// mov r8, st[2].value
+				asmcode += "\tmov r8, " + st[2].value + "\t\t; divisor, r8 = " + st[2].value + "\n"
+				// div rax
+				asmcode += "\tdiv r8\t\t\t; rax = rdx:rax / r8\n"
+				// restore rdx
+				//asmcode += "\tmov rdx, r9\t\t; restore rdx\n"
+			} else {
+				log.Println("Note: r8, r9 and r10 will be changed when dividing: " + st[0].value + " /= " + st[2].value)
+				// TODO: if the given register is a different one than rax, rcx and rdx,
+				//       just divide directly with that register, like for rax above
+				// save rax, we know this is not where we assign the result
+				if !registerA(st[0].value) {
+					asmcode += "\tmov r9, rax\t\t; save rax\n"
+				}
+				//if st[0].value != "rdx" {
+				//	// save rdx
+				//	asmcode += "\tmov r10, rdx\t\t; save rdx\n"
+				//}
+				// copy number to be divided to rax
+				if is32bit(st[0].value) {
+					if st[0].value != "eax" {
+						asmcode += "\txor rax, rax\t\t; clear rax\n"
+						asmcode += "\tmov eax, " + st[0].value + "\t\t; dividend, number to be divided\n"
+					}
+				} else if is16bit(st[0].value) {
+					if st[0].value != "ax" {
+						asmcode += "\txor rax, rax\t\t; clear rax\n"
+						asmcode += "\tmov ax, " + st[0].value + "\t\t; dividend, number to be divided\n"
+					}
 				} else {
-					// Dividing a 128-bit number in rdx:rax by the number in rcx. Clearing out rdx and only using 64-bit numbers for now.
-					// If the register to be divided is rax, do a quicker division than if it's another register
-					if st[0].value == "rax" {
-						// save rdx
-						//asmcode += "\tmov r9, rdx\t\t; save rdx\n"
-						// clear rdx
-						asmcode += "\txor rdx, rdx\t\t; rdx = 0 (64-bit 0:rax instead of 128-bit rdx:rax)\n"
-						// mov r8, st[2].value
-						asmcode += "\tmov r8, " + st[2].value + "\t\t; divisor, r8 = " + st[2].value + "\n"
-						// div rax
-						asmcode += "\tdiv r8\t\t\t; rax = rdx:rax / r8\n"
-						// restore rdx
-						//asmcode += "\tmov rdx, r9\t\t; restore rdx\n"
-					} else {
-						log.Println("Note: r8, r9 and r10 will be changed when dividing: " + st[0].value + " /= " + st[2].value)
-						// TODO: if the given register is a different one than rax, rcx and rdx,
-						//       just divide directly with that register, like for rax above
-						// save rax, we know this is not where we assign the result
-						if !register_a(st[0].value) {
-							asmcode += "\tmov r9, rax\t\t; save rax\n"
-						}
-						//if st[0].value != "rdx" {
-						//	// save rdx
-						//	asmcode += "\tmov r10, rdx\t\t; save rdx\n"
-						//}
-						// copy number to be divided to rax
-						if is_32_bit_register(st[0].value) {
-							if st[0].value != "eax" {
-								asmcode += "\txor rax, rax\t\t; clear rax\n"
-								asmcode += "\tmov eax, " + st[0].value + "\t\t; dividend, number to be divided\n"
-							}
-						} else if is_16_bit_register(st[0].value) {
-							if st[0].value != "ax" {
-								asmcode += "\txor rax, rax\t\t; clear rax\n"
-								asmcode += "\tmov ax, " + st[0].value + "\t\t; dividend, number to be divided\n"
-							}
-						} else {
-							if st[0].value != "rax" {
-								asmcode += "\tmov rax, " + st[0].value + "\t\t; dividend, number to be divided\n"
-							}
-						}
-						// xor rdx, rdx
-						asmcode += "\txor rdx, rdx\t\t; rdx = 0 (64-bit 0:rax instead of 128-bit rdx:rax)\n"
-						// mov rcx, st[2].value
-						asmcode += "\tmov r8, " + st[2].value + "\t\t; divisor, r8 = " + st[2].value + "\n"
-						// div rax
-						asmcode += "\tdiv r8\t\t\t; rax = rdx:rax / r8\n"
-						//if st[0].value != "rdx" {
-						//	// restore rdx
-						//	asmcode += "\tmov rdx, r10\t\t; restore rdx\n"
-						//}
-						// mov st[0].value, rax
-						if !register_a(st[0].value) {
-							asmcode += "\tmov " + st[0].value + ", rax\t\t; " + st[0].value + " = rax\n"
-						}
-						// restore rax
-						if !register_a(st[0].value) {
-							asmcode += "\tmov rax, r9\t\t; restore rax\n"
-						}
+					if st[0].value != "rax" {
+						asmcode += "\tmov rax, " + st[0].value + "\t\t; dividend, number to be divided\n"
 					}
-					return asmcode
+				}
+				// xor rdx, rdx
+				asmcode += "\txor rdx, rdx\t\t; rdx = 0 (64-bit 0:rax instead of 128-bit rdx:rax)\n"
+				// mov rcx, st[2].value
+				asmcode += "\tmov r8, " + st[2].value + "\t\t; divisor, r8 = " + st[2].value + "\n"
+				// div rax
+				asmcode += "\tdiv r8\t\t\t; rax = rdx:rax / r8\n"
+				//if st[0].value != "rdx" {
+				//	// restore rdx
+				//	asmcode += "\tmov rdx, r10\t\t; restore rdx\n"
+				//}
+				// mov st[0].value, rax
+				if !registerA(st[0].value) {
+					asmcode += "\tmov " + st[0].value + ", rax\t\t; " + st[0].value + " = rax\n"
+				}
+				// restore rax
+				if !registerA(st[0].value) {
+					asmcode += "\tmov rax, r9\t\t; restore rax\n"
 				}
 			}
+			return asmcode
 		}
 		log.Println("Unfamiliar 3-token expression!")
-	} else if (len(st) == 4) && (st[0].t == RESERVED) && (st[1].t == VALUE) && (st[2].t == ASSIGNMENT) && ((st[3].t == VALID_NAME) || (st[3].t == VALUE) || (st[3].t == REGISTER)) {
-		retval := "\tmov " + config.reserved_and_value(st[:2]) + ", " + st[3].value + "\t\t\t; "
+	} else if (len(st) == 4) && (st[0].t == RESERVED) && (st[1].t == VALUE) && (st[2].t == ASSIGNMENT) && ((st[3].t == VALIDNAME) || (st[3].t == VALUE) || (st[3].t == REGISTER)) {
+		retval := "\tmov " + config.reservedAndValue(st[:2]) + ", " + st[3].value + "\t\t\t; "
 		if (config.platformBits == 32) && (st[3].t != REGISTER) {
 			retval = strings.Replace(retval, "mov", "mov DWORD", 1)
 		}
 		pointercomment := ""
-		if st[3].t == VALID_NAME {
+		if st[3].t == VALIDNAME {
 			pointercomment = "&"
 		}
 		retval += fmt.Sprintf("%s[%s] = %s%s\n", st[0].value, st[1].value, pointercomment, st[3].value)
 		return retval
 	} else if (len(st) == 4) && (st[0].t == REGISTER) && (st[1].t == ASSIGNMENT) && (st[2].t == RESERVED) && (st[3].t == VALUE) {
-		retval := "\tmov " + st[0].value + ", " + config.reserved_and_value(st[2:]) + "\t\t\t; "
+		retval := "\tmov " + st[0].value + ", " + config.reservedAndValue(st[2:]) + "\t\t\t; "
 		retval += fmt.Sprintf("%s = %s[%s]\n", st[0].value, st[2].value, st[3].value)
 		return retval
 	} else if (len(st) == 5) && (st[0].t == RESERVED) && (st[1].t == VALUE) && (st[2].t == ASSIGNMENT) && (st[3].t == RESERVED) && (st[4].t == VALUE) {
 		retval := ""
 		if config.platformBits != 32 {
-			retval = "\tmov " + config.reserved_and_value(st[:2]) + ", " + config.reserved_and_value(st[3:]) + "\t\t\t; "
+			retval = "\tmov " + config.reservedAndValue(st[:2]) + ", " + config.reservedAndValue(st[3:]) + "\t\t\t; "
 		} else {
-			retval = "\tmov eax, " + config.reserved_and_value(st[3:]) + "\t\t\t; Uses eax as a temporary variable\n"
-			retval += "\tmov " + config.reserved_and_value(st[:2]) + ", ebx\t\t\t; "
+			retval = "\tmov eax, " + config.reservedAndValue(st[3:]) + "\t\t\t; Uses eax as a temporary variable\n"
+			retval += "\tmov " + config.reservedAndValue(st[:2]) + ", ebx\t\t\t; "
 		}
 		retval += fmt.Sprintf("%s[%s] = %s[%s]\n", st[0].value, st[1].value, st[3].value, st[4].value)
 		return retval
 	} else if (len(st) >= 2) && (st[0].t == KEYWORD) && (st[0].value == "asm") && (st[1].t == VALUE) {
-		target_bits, err := strconv.Atoi(st[1].value)
+		targetBits, err := strconv.Atoi(st[1].value)
 		if err != nil {
 			log.Fatalln("Error: " + st[1].value + " is not a valid platform bit size (like 32 or 64)")
 		}
-		if config.platformBits == target_bits {
+		if config.platformBits == targetBits {
 			// Add the rest of the line as a regular assembly expression
 			if len(st) == 7 {
 				comma1 := " "
@@ -1181,9 +1187,8 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 				// a label or keyword like "stosb"
 				if strings.Contains(st[2].value, ":") {
 					return "\t" + st[2].value + "\t\t\t; asm label\n"
-				} else {
-					return "\t" + st[2].value + "\t\t\t; asm\n"
 				}
+				return "\t" + st[2].value + "\t\t\t; asm\n"
 			} else {
 				log.Println("Error: Unrecognized length of assembly expression:", len(st)-2)
 				for i, token := range []Token(st) {
@@ -1197,22 +1202,22 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		}
 		// Not the target bits, skip
 		return ""
-	} else if (len(st) >= 2) && (st[0].t == KEYWORD) && (st[1].t == VALID_NAME) && (st[0].value == "fun") {
-		if ps.in_function != "" {
-			log.Fatalf("Error: Missing \"ret\" or \"end\"? Already in a function named %s when declaring function %s.\n", ps.in_function, st[1].value)
+	} else if (len(st) >= 2) && (st[0].t == KEYWORD) && (st[1].t == VALIDNAME) && (st[0].value == "fun") {
+		if ps.inFunction != "" {
+			log.Fatalf("Error: Missing \"ret\" or \"end\"? Already in a function named %s when declaring function %s.\n", ps.inFunction, st[1].value)
 		}
 		asmcode := ";--- function " + st[1].value + " ---\n"
-		ps.in_function = st[1].value
+		ps.inFunction = st[1].value
 		// Store the name of the declared function in defined_names
-		if has(ps.defined_names, ps.in_function) {
-			log.Fatalln("Error: Can not declare function, name is already defined:", ps.in_function)
+		if has(ps.definedNames, ps.inFunction) {
+			log.Fatalln("Error: Can not declare function, name is already defined:", ps.inFunction)
 		}
-		ps.defined_names = append(ps.defined_names, ps.in_function)
+		ps.definedNames = append(ps.definedNames, ps.inFunction)
 		if config.platformBits != 16 {
-			asmcode += "global " + ps.in_function + "\t\t\t; make label available to the linker\n"
+			asmcode += "global " + ps.inFunction + "\t\t\t; make label available to the linker\n"
 		}
-		asmcode += ps.in_function + ":\t\t\t\t; name of the function\n\n"
-		if (ps.in_function == "main") || (ps.in_function == linker_start_function) {
+		asmcode += ps.inFunction + ":\t\t\t\t; name of the function\n\n"
+		if (ps.inFunction == "main") || (ps.inFunction == linkerStartFunction) {
 			//log.Println("Not setting up stack frame in the main/_start/start function.")
 			return asmcode
 		}
@@ -1228,33 +1233,32 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		}
 		return asmcode
 	} else if (st[0].t == KEYWORD) && (st[0].value == "call") && (len(st) == 2) {
-		if st[1].t == VALID_NAME {
+		if st[1].t == VALIDNAME {
 			return "\t;--- call the \"" + st[1].value + "\" function ---\n\tcall " + st[1].value + "\n"
-		} else {
-			log.Fatalln("Error: Calling an invalid name:", st[1].value)
 		}
+		log.Fatalln("Error: Calling an invalid name:", st[1].value)
 		// TODO: Find a shorter format to describe matching tokens.
 		// Something along the lines of: if match(st, [KEYWORD:"extern"], 2)
 	} else if (st[0].t == KEYWORD) && (st[0].value == "counter") && (len(st) == 2) {
-		return "\tmov " + config.counter_register() + ", " + st[1].value + "\t\t\t; set (loop) counter\n"
+		return "\tmov " + config.counterRegister() + ", " + st[1].value + "\t\t\t; set (loop) counter\n"
 	} else if (st[0].t == KEYWORD) && (st[0].value == "value") && (len(st) == 2) {
 		asmcode := ""
 		switch config.platformBits {
 		case 64:
 			asmcode = "\tmov rax, " + st[1].value + "\t\t\t; set value, in preparation for looping\n"
-			ps.loop_step = 8
+			ps.loopStep = 8
 		case 32:
 			asmcode = "\tmov eax, " + st[1].value + "\t\t\t; set value, in preparation for looping\n"
-			ps.loop_step = 4
+			ps.loopStep = 4
 		case 16:
 			// Find out if the value is a byte or a word, then set a global variable to keep track of if the nest loop should be using stosb or stosw
 			if st[1].t == VALUE {
 				if (strings.HasPrefix(st[1].value, "0x") && (len(st[1].value) == 6)) || (numbits(st[1].value) > 8) {
 					asmcode += "\tmov ax, " + st[1].value + "\t\t\t; set value, in preparation for stosw\n"
-					ps.loop_step = 2
+					ps.loopStep = 2
 				} else if (strings.HasPrefix(st[1].value, "0x") && (len(st[1].value) == 4)) || (numbits(st[1].value) <= 8) {
 					asmcode += "\tmov al, " + st[1].value + "\t\t\t; set value, in preparation for stosb\n"
-					ps.loop_step = 1
+					ps.loopStep = 1
 				} else {
 					log.Fatalln("Error: Unable to tell if this is a word or a byte:", st[1].value)
 				}
@@ -1263,10 +1267,10 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 				// TODO: Introduce a function for checking if a register is 8-bit, 16-bit, 32-bit or 64-bit
 				case "al", "ah", "bl", "bh", "cl", "ch", "dl", "dh":
 					asmcode += "\tmov al, " + st[1].value + "\t\t\t; set value from register, in preparation for stosb\n"
-					ps.loop_step = 1
+					ps.loopStep = 1
 				default:
 					asmcode += "\tmov ax, " + st[1].value + "\t\t\t; Set value from register, in preparation for stosw\n"
-					ps.loop_step = 2
+					ps.loopStep = 2
 				}
 			} else {
 				log.Fatalln("Error: Unable to tell if this is a word or a byte:", st[1].value)
@@ -1279,7 +1283,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		asmcode := ""
 		switch config.platformBits {
 		case 16:
-			if ps.loop_step == 2 {
+			if ps.loopStep == 2 {
 				asmcode += "\trep stosw\t\t\t; write the value in ax, cx times, starting at es:di\n"
 			} else { // if ps.loop_step == 1 {
 				asmcode += "\trep stosb\t\t\t; write the value in al, cx times, starting at es:di\n"
@@ -1292,7 +1296,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		asmcode := ""
 		switch config.platformBits {
 		case 16:
-			if ps.loop_step == 2 {
+			if ps.loopStep == 2 {
 				asmcode += "\tstosw\t\t\t; write the value in ax, starting at es:di\n"
 			} else { // if ps.loop_step == 1 {
 				asmcode += "\tstosb\t\t\t; write the value in al, starting at es:di\n"
@@ -1313,17 +1317,17 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		// Find a suitable label
 		label := ""
 		if rawloop {
-			label = rawloop_prefix + ps.new_loop_label()
+			label = rawloopPrefix + ps.newLoopLabel()
 		} else {
 			if endlessloop {
-				label = endlessloop_prefix + ps.new_loop_label()
+				label = endlessloopPrefix + ps.newLoopLabel()
 			} else {
-				label = ps.new_loop_label()
+				label = ps.newLoopLabel()
 			}
 		}
 
 		// Now in the loop, in_loop is global
-		ps.in_loop = label
+		ps.inLoop = label
 
 		asmcode := ""
 
@@ -1335,7 +1339,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 				asmcode += "\t;--- endless loop ---\n"
 			} else {
 				asmcode += "\t;--- loop " + st[1].value + " times ---\n"
-				asmcode += "\tmov " + config.counter_register() + ", " + st[1].value
+				asmcode += "\tmov " + config.counterRegister() + ", " + st[1].value
 				asmcode += "\t\t\t; initialize loop counter\n"
 			}
 		}
@@ -1343,20 +1347,20 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 
 		// If it's not a raw loop (or endless loop), take care of the counter
 		if (!rawloop) && (!endlessloop) {
-			asmcode += "\tpush " + config.counter_register() + "\t\t\t; save the counter\n"
+			asmcode += "\tpush " + config.counterRegister() + "\t\t\t; save the counter\n"
 		}
 		return asmcode
 	} else if (st[0].t == KEYWORD) && (st[0].value == "address") && (len(st) == 2) {
 		asmcode := ""
 		switch config.platformBits {
 		case 16:
-			segment_offset := st[1].value
-			if !strings.Contains(segment_offset, ":") {
+			segmentOffset := st[1].value
+			if !strings.Contains(segmentOffset, ":") {
 				log.Fatalln("Error: address takes a segment:offset value")
 			}
-			sl := strings.SplitN(segment_offset, ":", 2)
+			sl := strings.SplitN(segmentOffset, ":", 2)
 			if len(sl) != 2 {
-				log.Fatalln("Error: Unrecognized segment:offset address:", segment_offset)
+				log.Fatalln("Error: Unrecognized segment:offset address:", segmentOffset)
 			}
 			segment := sl[0]
 			offset := sl[1]
@@ -1378,7 +1382,7 @@ func (st Statement) String(ps *ProgramState, config *Config) string {
 		}
 		return asmcode
 	} else if (st[0].t == KEYWORD) && (st[0].value == "bootable") && (len(st) == 1) {
-		config.bootable_kernel = true
+		config.bootableKernel = true
 		// This program is supposed to be bootable
 		return `
 ; Thanks to http://wiki.osdev.org/Bare_Bones_with_NASM
@@ -1415,27 +1419,26 @@ section .text
 `
 		//'
 	} else if (st[0].t == KEYWORD) && (st[0].value == "extern") && (len(st) == 2) {
-		if st[1].t == VALID_NAME {
+		if st[1].t == VALIDNAME {
 			extname := st[1].value
 			// Declare the external name
-			if has(ps.defined_names, extname) {
+			if has(ps.definedNames, extname) {
 				log.Fatalln("Error: Can not declare external symbol, name is already defined: " + extname)
 			}
 			// Store the name of the declared constant in defined_names
-			ps.defined_names = append(ps.defined_names, extname)
+			ps.definedNames = append(ps.definedNames, extname)
 			// Return a comment
 			return "extern " + extname + "\t\t\t; external symbol\n"
-		} else {
-			log.Fatalln("Error: extern with invalid name:", st[1].value)
 		}
+		log.Fatalln("Error: extern with invalid name:", st[1].value)
 	} else if (st[0].t == KEYWORD) && (st[0].value == "break") && (len(st) == 4) && (st[2].t == COMPARISON) {
 		// breakif
-		if ps.in_loop != "" {
+		if ps.inLoop != "" {
 			asmcode := ""
-			rawloop := strings.HasPrefix(ps.in_loop, rawloop_prefix)     // Is it a rawloop?
-			endless := strings.HasPrefix(ps.in_loop, endlessloop_prefix) // Is it endless?
+			rawloop := strings.HasPrefix(ps.inLoop, rawloopPrefix)     // Is it a rawloop?
+			endless := strings.HasPrefix(ps.inLoop, endlessloopPrefix) // Is it endless?
 			if !rawloop && !endless {
-				asmcode += "\tpop " + config.counter_register() + "\t\t\t\t; restore counter\n"
+				asmcode += "\tpop " + config.counterRegister() + "\t\t\t\t; restore counter\n"
 			}
 
 			// Break if something comparison something
@@ -1459,40 +1462,38 @@ section .text
 			}
 
 			// Which label to jump to (out of the loop)
-			asmcode += " " + ps.in_loop + "_end\t\t\t; break\n"
+			asmcode += " " + ps.inLoop + "_end\t\t\t; break\n"
 			return asmcode
-		} else {
-			log.Fatalln("Error: Unclear which loop one should break out of.")
 		}
+		log.Fatalln("Error: Unclear which loop one should break out of.")
 	} else if (st[0].t == KEYWORD) && (st[0].value == "break") && (len(st) == 1) {
-		if ps.in_loop != "" {
+		if ps.inLoop != "" {
 			asmcode := ""
-			rawloop := strings.HasPrefix(ps.in_loop, rawloop_prefix)     // Is it a rawloop?
-			endless := strings.HasPrefix(ps.in_loop, endlessloop_prefix) // Is it endless?
+			rawloop := strings.HasPrefix(ps.inLoop, rawloopPrefix)     // Is it a rawloop?
+			endless := strings.HasPrefix(ps.inLoop, endlessloopPrefix) // Is it endless?
 			if !rawloop && !endless {
-				asmcode += "\tpop " + config.counter_register() + "\t\t\t\t; restore counter\n"
+				asmcode += "\tpop " + config.counterRegister() + "\t\t\t\t; restore counter\n"
 			}
-			asmcode += "\tjmp " + ps.in_loop + "_end\t\t\t; break\n"
+			asmcode += "\tjmp " + ps.inLoop + "_end\t\t\t; break\n"
 			return asmcode
-		} else {
-			log.Fatalln("Error: Unclear which loop one should break out of.")
 		}
+		log.Fatalln("Error: Unclear which loop one should break out of.")
 	} else if (st[0].t == KEYWORD) && (st[0].value == "continue") && (len(st) == 4) && (st[2].t == COMPARISON) {
 		// continueif
-		if ps.in_loop != "" {
+		if ps.inLoop != "" {
 			asmcode := ""
-			rawloop := strings.HasPrefix(ps.in_loop, rawloop_prefix)     // Is it a rawloop?
-			endless := strings.HasPrefix(ps.in_loop, endlessloop_prefix) // Is it endless?
+			rawloop := strings.HasPrefix(ps.inLoop, rawloopPrefix)     // Is it a rawloop?
+			endless := strings.HasPrefix(ps.inLoop, endlessloopPrefix) // Is it endless?
 			if !rawloop && !endless {
-				asmcode += "\tpop " + config.counter_register() + "\t\t\t\t; restore counter\n"
+				asmcode += "\tpop " + config.counterRegister() + "\t\t\t\t; restore counter\n"
 			}
 
 			// Continue looping if the counter is greater than zero
 			//asmcode += "\tloop " + in_loop + "\t\t\t; continue\n"
 			// loop can only jump <= 127 bytes away. Use dec and jnz instead
 			if !endless {
-				asmcode += "\tdec " + config.counter_register() + "\t\t\t\t; decrease counter\n"
-				asmcode += "\tjz " + ps.in_loop + "_end\t\t\t; jump out if the loop is done\n"
+				asmcode += "\tdec " + config.counterRegister() + "\t\t\t\t; decrease counter\n"
+				asmcode += "\tjz " + ps.inLoop + "_end\t\t\t; jump out if the loop is done\n"
 			}
 
 			// Continue if something comparison something
@@ -1516,36 +1517,33 @@ section .text
 			}
 
 			// Jump to the top if the condition is true
-			asmcode += " " + ps.in_loop + "\t\t\t; continue\n"
+			asmcode += " " + ps.inLoop + "\t\t\t; continue\n"
 
 			return asmcode
-		} else {
-			log.Fatalln("Error: Unclear which loop one should continue to the top of.")
 		}
-
+		log.Fatalln("Error: Unclear which loop one should continue to the top of.")
 	} else if (st[0].t == KEYWORD) && (st[0].value == "continue") && (len(st) == 1) {
-		if ps.in_loop != "" {
+		if ps.inLoop != "" {
 			asmcode := ""
-			rawloop := strings.HasPrefix(ps.in_loop, rawloop_prefix)     // Is it a rawloop?
-			endless := strings.HasPrefix(ps.in_loop, endlessloop_prefix) // Is it endless?
+			rawloop := strings.HasPrefix(ps.inLoop, rawloopPrefix)     // Is it a rawloop?
+			endless := strings.HasPrefix(ps.inLoop, endlessloopPrefix) // Is it endless?
 			if !rawloop && !endless {
-				asmcode += "\tpop " + config.counter_register() + "\t\t\t\t; restore counter\n"
+				asmcode += "\tpop " + config.counterRegister() + "\t\t\t\t; restore counter\n"
 			}
 			// Continue looping if the counter is greater than zero
 			//asmcode += "\tloop " + in_loop + "\t\t\t; continue\n"
 			// loop can only jump <= 127 bytes away. Using dec and jnz instead
 			if !endless {
-				asmcode += "\tdec " + config.counter_register() + "\t\t\t\t; decrease counter\n"
-				asmcode += "\tjnz " + ps.in_loop + "\t\t\t; continue if not zero\n"
+				asmcode += "\tdec " + config.counterRegister() + "\t\t\t\t; decrease counter\n"
+				asmcode += "\tjnz " + ps.inLoop + "\t\t\t; continue if not zero\n"
 				// If the counter is zero after restoring the counter, jump out of the loop
-				asmcode += "\tjz " + ps.in_loop + "_end\t\t\t; jump out if the loop is done\n"
+				asmcode += "\tjz " + ps.inLoop + "_end\t\t\t; jump out if the loop is done\n"
 			} else {
-				asmcode += "\tjmp " + ps.in_loop + "\t\t\t; continue\n"
+				asmcode += "\tjmp " + ps.inLoop + "\t\t\t; continue\n"
 			}
 			return asmcode
-		} else {
-			log.Fatalln("Error: Unclear which loop one should continue to the top of.")
 		}
+		log.Fatalln("Error: Unclear which loop one should continue to the top of.")
 	} else if (st[0].t == KEYWORD) && (st[0].value == "endless") && (len(st) == 1) {
 		//ps.in_loop = ""
 		//ps.in_function = ""
@@ -1555,56 +1553,55 @@ section .text
 		if parseState.inlineC {
 			parseState.inlineC = false
 			return "; end of inline C block\n"
-		} else if ps.in_if_block != "" {
+		} else if ps.inIfBlock != "" {
 			// End the if block
 			asmcode := ""
-			asmcode += ps.in_if_block + "_end:\t\t\t\t; end of if block " + ps.in_if_block + "\n"
-			ps.in_if_block = ""
+			asmcode += ps.inIfBlock + "_end:\t\t\t\t; end of if block " + ps.inIfBlock + "\n"
+			ps.inIfBlock = ""
 			return asmcode
-		} else if ps.in_loop != "" {
+		} else if ps.inLoop != "" {
 			asmcode := ""
-			rawloop := strings.HasPrefix(ps.in_loop, rawloop_prefix)     // Is it a rawloop?
-			endless := strings.HasPrefix(ps.in_loop, endlessloop_prefix) // Is it endless?
+			rawloop := strings.HasPrefix(ps.inLoop, rawloopPrefix)     // Is it a rawloop?
+			endless := strings.HasPrefix(ps.inLoop, endlessloopPrefix) // Is it endless?
 			if !rawloop && !endless {
-				asmcode += "\tpop " + config.counter_register() + "\t\t\t\t; restore counter\n"
+				asmcode += "\tpop " + config.counterRegister() + "\t\t\t\t; restore counter\n"
 			}
 			if endless {
-				asmcode += "\tjmp " + ps.in_loop + "\t\t\t\t; loop forever\n"
+				asmcode += "\tjmp " + ps.inLoop + "\t\t\t\t; loop forever\n"
 				ps.endless = true
 			} else {
 				//asmcode += "\tloop " + in_loop + "\t\t\t\t; loop until " + config.counter_register() + " is zero\n"
-				asmcode += "\tdec " + config.counter_register() + "\t\t\t\t; decrease counter\n"
-				asmcode += "\tjnz " + ps.in_loop + "\t\t\t\t; loop until " + config.counter_register() + " is zero\n"
+				asmcode += "\tdec " + config.counterRegister() + "\t\t\t\t; decrease counter\n"
+				asmcode += "\tjnz " + ps.inLoop + "\t\t\t\t; loop until " + config.counterRegister() + " is zero\n"
 			}
-			asmcode += ps.in_loop + "_end:\t\t\t\t; end of loop " + ps.in_loop + "\n"
-			asmcode += "\t;--- end of loop " + ps.in_loop + " ---\n"
-			ps.in_loop = ""
+			asmcode += ps.inLoop + "_end:\t\t\t\t; end of loop " + ps.inLoop + "\n"
+			asmcode += "\t;--- end of loop " + ps.inLoop + " ---\n"
+			ps.inLoop = ""
 			return asmcode
-		} else if ps.in_function != "" {
+		} else if ps.inFunction != "" {
 			// Return from the function if "end" is encountered
 			ret := Token{KEYWORD, "ret", st[0].line, ""}
 			newstatement := Statement{ret}
 			return newstatement.String(ps, config)
 		} else {
 			// If the function was already ended with "exit", don't freak out when encountering an "end"
-			if !ps.surprise_ending_with_exit && !ps.endless {
+			if !ps.surpriseEndingWithExit && !ps.endless {
 				log.Fatalln("Error: Not in a function or block of inline C, hard to tell what should be ended with \"end\". Statement nr:", st[0].line)
 			} else {
 				// Prepare for more surprises
-				ps.surprise_ending_with_exit = false
+				ps.surpriseEndingWithExit = false
 				// Ignore this "end"
 				return ""
 			}
 		}
-	} else if (st[0].t == VALID_NAME) && (len(st) == 1) {
+	} else if (st[0].t == VALIDNAME) && (len(st) == 1) {
 		// Just a name, assume it's a function call
-		if has(ps.defined_names, st[0].value) {
+		if has(ps.definedNames, st[0].value) {
 			call := Token{KEYWORD, "call", st[0].line, ""}
 			newstatement := Statement{call, st[0]}
 			return newstatement.String(ps, config)
-		} else {
-			log.Fatalln("Error: No function named:", st[0].value)
 		}
+		log.Fatalln("Error: No function named:", st[0].value)
 	} else if (st[0].t == KEYWORD) && (st[0].value == "noret") {
 		return "; end without a return\n"
 	} else if (st[0].t == KEYWORD) && (st[0].value == "inline_c") {
