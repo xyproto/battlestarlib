@@ -5,11 +5,6 @@ import (
 	"strings"
 )
 
-var (
-	// TODO: Add an option for not adding start symbols
-	linkerStartFunction = "_start"
-)
-
 // ExtractInlineC retrieves the C code between:
 //   inline_c...end
 // or
@@ -102,17 +97,17 @@ func addExternMainIfMissing(btsCode string) string {
 
 func (config *TargetConfig) addStartingPointIfMissing(asmcode string, ps *ProgramState) string {
 	// Check if the resulting code contains a starting point or not
-	if strings.Contains(asmcode, "extern "+linkerStartFunction) {
+	if strings.Contains(asmcode, "extern "+config.LinkerStartFunction) {
 		log.Println("External starting point for linker, not adding one.")
 		return asmcode
 	}
-	if !strings.Contains(asmcode, linkerStartFunction) {
-		log.Printf("No %s has been defined, creating one\n", linkerStartFunction)
+	if !strings.Contains(asmcode, config.LinkerStartFunction) {
+		log.Printf("No %s has been defined, creating one\n", config.LinkerStartFunction)
 		var addstring string
 		if config.platformBits != 16 {
-			addstring += "global " + linkerStartFunction + "\t\t\t; make label available to the linker\n"
+			addstring += "global " + config.LinkerStartFunction + "\t\t\t; make label available to the linker\n"
 		}
-		addstring += linkerStartFunction + ":\t\t\t\t; starting point of the program\n"
+		addstring += config.LinkerStartFunction + ":\t\t\t\t; starting point of the program\n"
 		if strings.Contains(asmcode, "extern main") {
 			//log.Println("External main function, adding starting point that calls it.")
 			linenr := uint(strings.Count(asmcode+addstring, "\n") + 5)

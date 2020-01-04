@@ -31,6 +31,9 @@ type TargetConfig struct {
 	platformBits   int
 	macOS          bool
 	bootableKernel bool
+
+	// LinkerStartFunction is the name of the first function the linker should use, typically "_start"
+	LinkerStartFunction string
 }
 
 // NewTargetConfig returns an new TargetConfig struct with a few options set.
@@ -38,7 +41,7 @@ type TargetConfig struct {
 // macOS should be true if targeting Darwin / OS X / macOS
 // bootableKernel should be set to true if this is for building a bootable kernel
 func NewTargetConfig(platformBits int, macOS, bootableKernel bool) *TargetConfig {
-	return &TargetConfig{platformBits, macOS, bootableKernel}
+	return &TargetConfig{platformBits, macOS, bootableKernel, "_start"}
 }
 
 // is64bit determines if the given register name looks like the 64-bit version of the general purpose registers
@@ -611,7 +614,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 	} else if ((st[0].t == KEYWORD) && (st[0].value == "ret")) || ((st[0].t == BUILTIN) && (st[0].value == "exit")) {
 		asmcode := ""
 		if st[0].value == "ret" {
-			if (ps.inFunction == "main") || (ps.inFunction == linkerStartFunction) {
+			if (ps.inFunction == "main") || (ps.inFunction == config.LinkerStartFunction) {
 				//log.Println("Not taking down stack frame in the main/_start/start function.")
 			} else {
 				switch config.platformBits {
@@ -635,7 +638,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 		} else {
 			asmcode += "\t;--- return ---\n"
 		}
-		if (st[0].value == "exit") || (ps.inFunction == "main") || (ps.inFunction == linkerStartFunction) {
+		if (st[0].value == "exit") || (ps.inFunction == "main") || (ps.inFunction == config.LinkerStartFunction) {
 			// Not returning from main/_start/start function, but exiting properly
 			exitCode := "0"
 			if (len(st) == 2) && ((st[1].t == VALUE) || (st[1].t == REGISTER)) {
@@ -1217,7 +1220,7 @@ func (st Statement) String(ps *ProgramState, config *TargetConfig) string {
 			asmcode += "global " + ps.inFunction + "\t\t\t; make label available to the linker\n"
 		}
 		asmcode += ps.inFunction + ":\t\t\t\t; name of the function\n\n"
-		if (ps.inFunction == "main") || (ps.inFunction == linkerStartFunction) {
+		if (ps.inFunction == "main") || (ps.inFunction == config.LinkerStartFunction) {
 			//log.Println("Not setting up stack frame in the main/_start/start function.")
 			return asmcode
 		}
