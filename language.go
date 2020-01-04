@@ -104,10 +104,10 @@ func (config *TargetConfig) reservedAndValue(st Statement) string {
 		if err != nil {
 			log.Fatalln("Error: Invalid offset for", st[0].Value+":", st[1].Value)
 		}
-		if paramoffset >= len(interruptParameterRegisters) {
+		if paramoffset >= len(config.interruptParameterRegisters) {
 			log.Fatalln("Error: Invalid offset for", st[0].Value+":", st[1].Value, "(too high)")
 		}
-		return interruptParameterRegisters[paramoffset]
+		return config.interruptParameterRegisters[paramoffset]
 	} else {
 		// TODO: Implement support for other lists
 		log.Fatalln("Error: Can only handle \"funparam\" and \"sysparam\" reserved words.")

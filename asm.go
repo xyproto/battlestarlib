@@ -18,7 +18,6 @@ var (
 		"r10", "r11", "r12", "r13", "r14", "r15", "sil", "dil", "spl", "bpl",
 		"xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15"} // 64-bit
 
-	interruptParameterRegisters []string
 )
 
 // ParseState keeps track of the current state when parsing
@@ -34,6 +33,9 @@ type TargetConfig struct {
 
 	// LinkerStartFunction is the name of the first function the linker should use, typically "_start"
 	LinkerStartFunction string
+
+	// interruptParameterRegisters are the registers that are primarily used when calling interrupts
+	interruptParameterRegisters []string
 }
 
 // NewTargetConfig returns an new TargetConfig struct with a few options set.
@@ -45,7 +47,16 @@ func NewTargetConfig(platformBits int, macOS, bootableKernel bool) *TargetConfig
 	if macOS {
 		linkerStartFunction = "_main"
 	}
-	return &TargetConfig{platformBits, macOS, bootableKernel, linkerStartFunction}
+
+	// Used when calling interrupts (or syscall). Not used for 16-bit platforms.
+	var interruptParameterRegisters []string
+	if platformBits == 32 {
+		interruptParameterRegisters = []string{"eax", "ebx", "ecx", "edx"}
+	} else {
+		interruptParameterRegisters = []string{"rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9"}
+	}
+
+	return &TargetConfig{platformBits, macOS, bootableKernel, linkerStartFunction, interruptParameterRegisters}
 }
 
 // is64bit determines if the given register name looks like the 64-bit version of the general purpose registers
@@ -133,15 +144,6 @@ func upgrade(reg string) string {
 // Checks if the register is one of the a registers.
 func registerA(reg string) bool {
 	return (reg == "ax") || (reg == "eax") || (reg == "rax") || (reg == "al") || (reg == "ah")
-}
-
-func initInterruptParameterRegisters(bits int) {
-	// Used when calling interrupts (or syscall)
-	if bits == 32 {
-		interruptParameterRegisters = []string{"eax", "ebx", "ecx", "edx"}
-	} else {
-		interruptParameterRegisters = []string{"rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9"}
-	}
 }
 
 func (config *TargetConfig) paramnum2reg(num int) string {
@@ -265,7 +267,7 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 	firstI := fromI      // 2 for others, len(st)=1 for OSX/BSD
 	lastI := toI - stepI // 2 for OSX/BSD, len(st)-1 for others
 	for i := fromI; i != toI; i += stepI {
-		if (i - preskip) >= len(interruptParameterRegisters) {
+		if (i - preskip) >= len(config.interruptParameterRegisters) {
 			log.Println("Error: Too many parameters for interrupt call:")
 			for _, t := range st {
 				log.Println(t.Value)
@@ -273,7 +275,7 @@ func (config *TargetConfig) syscallOrInterrupt(st Statement, syscall bool) strin
 			os.Exit(1)
 			break
 		}
-		reg = interruptParameterRegisters[i-preskip]
+		reg = config.interruptParameterRegisters[i-preskip]
 		n = strconv.Itoa(i - preskip)
 		if (config.macOS && (i == lastI)) || (!config.macOS && (i == firstI)) {
 			comment = "function call: " + st[i].Value
