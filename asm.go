@@ -41,7 +41,11 @@ type TargetConfig struct {
 // macOS should be true if targeting Darwin / OS X / macOS
 // bootableKernel should be set to true if this is for building a bootable kernel
 func NewTargetConfig(platformBits int, macOS, bootableKernel bool) *TargetConfig {
-	return &TargetConfig{platformBits, macOS, bootableKernel, "_start"}
+	linkerStartFunction := "_start"
+	if macOS {
+		linkerStartFunction = "_main"
+	}
+	return &TargetConfig{platformBits, macOS, bootableKernel, linkerStartFunction}
 }
 
 // is64bit determines if the given register name looks like the 64-bit version of the general purpose registers

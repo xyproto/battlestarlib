@@ -103,7 +103,7 @@ func (config *TargetConfig) retokenize(word string, sep string) []Token {
 	var newtokens []Token
 	words := strings.Split(word, sep)
 	for _, s := range words {
-		tokens := config.tokenize(s, sep)
+		tokens := config.Tokenize(s, sep)
 		//log.Println("RETOKEN", tokens)
 		for _, t := range tokens {
 			if t.t != SEP {
@@ -127,7 +127,7 @@ func lognewtokens(tokens []Token) {
 }
 
 // Tokenize a string
-func (config *TargetConfig) tokenize(program, sep string) []Token {
+func (config *TargetConfig) Tokenize(program, sep string) []Token {
 	statements := maps(maps(strings.Split(program, "\n"), strings.TrimSpace), removecomments)
 	tokens := make([]Token, 0)
 	var (
@@ -486,7 +486,7 @@ func (config *TargetConfig) reduce(st Statement, debug bool, ps *ProgramState) S
 				} else {
 					cmd = "syscall(1, 1, " + st[i+1].value + ", len(" + st[i+1].value + "))"
 				}
-				tokens = config.tokenize(cmd, " ")
+				tokens = config.Tokenize(cmd, " ")
 				// Position of the token that is to be written
 				tokenpos = 3
 			case 32:
@@ -496,7 +496,7 @@ func (config *TargetConfig) reduce(st Statement, debug bool, ps *ProgramState) S
 				} else {
 					cmd = "int(0x80, 4, 1, " + st[i+1].value + ", len(" + st[i+1].value + "))"
 				}
-				tokens = config.tokenize(cmd, " ")
+				tokens = config.Tokenize(cmd, " ")
 				// Position of the token that is to be written
 				tokenpos = 4
 			case 16:
