@@ -70,7 +70,7 @@ func ExtractInlineC(code string, debug bool) string {
 	return clines
 }
 
-func addExternMainIfMissing(btsCode string) string {
+func AddExternMainIfMissing(btsCode string) string {
 	// If there is a line starting with "void main", or "int main" but no line starting with "extern main",
 	// add "extern main" at the top.
 	foundMain := false
@@ -95,7 +95,7 @@ func addExternMainIfMissing(btsCode string) string {
 	return btsCode
 }
 
-func (config *TargetConfig) addStartingPointIfMissing(asmcode string, ps *ProgramState) string {
+func (config *TargetConfig) AddStartingPointIfMissing(asmcode string, ps *ProgramState) string {
 	// Check if the resulting code contains a starting point or not
 	if strings.Contains(asmcode, "extern "+config.LinkerStartFunction) {
 		log.Println("External starting point for linker, not adding one.")
@@ -125,7 +125,7 @@ func (config *TargetConfig) addStartingPointIfMissing(asmcode string, ps *Progra
 	return asmcode
 }
 
-func addExitTokenIfMissing(tokens []Token) []Token {
+func AddExitTokenIfMissing(tokens []Token) []Token {
 	var (
 		twolast   []Token
 		lasttoken Token
